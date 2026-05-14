@@ -30,6 +30,7 @@
     "use strict";
 
     const Conv = require("./conv");
+    const Config = require("./config");
 
     // fetchタイムアウト: 15分.
     const _FETCH_TIMEOUT = 60000 * 15;
@@ -87,6 +88,7 @@
      * @throws {Error}   HTTP エラーまたはレスポンスに error フィールドが含まれる場合
      */
     const _fetch = async function (baseUrl, endpoint, body, rawText) {
+        const conf = Config.getInstance();
         const url = _buildUrl(baseUrl, endpoint);
         const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
 
@@ -94,7 +96,8 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: bodyStr,
-            signal: AbortSignal.timeout(_FETCH_TIMEOUT),
+            signal: AbortSignal.timeout(conf.fetchTimeout), // タイムアウト設定.
+            keepalive: true,
         });
 
         const resText = await res.text();

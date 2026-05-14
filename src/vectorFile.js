@@ -999,6 +999,64 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
+     * サマリー返却のJSON変換.
+     * @param {string} sumTxt サマリー返却の文字列を設定します.
+     * @returns {tag, category, summary} JSON解析結果が返却されます.
+     */
+    const _resultSummayToJson = function (sumTxt) {
+        sumTxt = sumTxt.trim();
+
+        let ep;
+        // jsonのマークダウンで囲われている部分を取得.
+        if (sumTxt.startsWith("~~~json")) {
+            ep = sumTxt.indexOf("~~~", 7);
+            if (ep == -1) {
+                return null;
+            }
+        } else if (sumTxt.startsWith("```json")) {
+            ep = sumTxt.indexOf("```", 7);
+            if (ep == -1) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+        // json文字列を取得.
+        let jsonTxt = sumTxt.substring(7, ep).trim();
+        // サマリー文字列を取得.
+        let summary = sumTxt.substring(ep + 3).trim();
+
+        // json文字列から改行を削除.
+        //jsonTxt = jsonTxt.replace(/\r?\n/g, "");
+        // {xxx: [],} や {xxx: ["hoge",]} の余分なカンマを削除.
+        jsonTxt = jsonTxt.replace(/,\s*([\]}])/g, "$1");
+
+        // jsonをパース.
+        let jsonValue = null;
+        try {
+            // jsonパース実行.
+            jsonValue = JSON.parse(jsonTxt);
+        } catch (e) {
+            try {
+                // json内の key = "key" に変換する.
+                jsonTxt.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":');
+                // jsonパース実行.
+                jsonValue = JSON.parse(jsonTxt);
+            } catch (ee) {
+                console.log("#[ERROR]JSON.parse: " + jsonTxt);
+                throw ee;
+            }
+        }
+        // サマリー内容の整形.
+        summary = Conv.stripMarkdown(summary); // マークダウン除去
+        summary = Conv.exclusionText(summary); // 全角スペース・\r・\t 除去
+        summary = Conv.trimEnterText(summary); // 余分な空行除去
+
+        jsonValue["summary"] = summary;
+        return jsonValue;
+    };
+
+    /**
      * 指定グループにテキストファイルの内容を追加・更新する.
      *
      * 【処理の流れ】
@@ -1098,27 +1156,52 @@
             // 要約結果だけ Conv で後処理する.
 
             let tm = Date.now();
+            // debug.
             console.log("start.getInferenceMessage(" + textFileName + ")");
             let sumTxt = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
-                conf.getSummaryRequest(sumPrompt, text),
+                conf.getSummaryRequest(sumPrompt, textDocName, text),
                 temperature,
             );
+            // debug.
             console.log(
                 "end.getInferenceMessage: " + (Date.now() - tm) + " msec",
             );
-            sumTxt = Conv.stripMarkdown(sumTxt); // マークダウン除去
-            sumTxt = Conv.exclusionText(sumTxt); // 全角スペース・\r・\t 除去
-            sumTxt = Conv.trimEnterText(sumTxt); // 余分な空行除去
+
+            // 結果文字列の整形.
+            sumTxt = sumTxt.trim();
+
+            // AI回答の文字列に</think>が設定されている場合.
+            // この文字以降のものだけを採用する.
+            const p = sumTxt.indexOf("</think>");
+            if (p != -1) {
+                sumTxt = sumTxt.substring(p + 8).trim();
+            }
+
+            // json変換処理.
+            const jsonValue = _resultSummayToJson(sumTxt);
+
+            // jsonパースが成功している場合.
+            if (jsonValue != null) {
+                // JSON内容を文字列に置き換える.
+                sumTxt =
+                    "~~~json\n" +
+                    JSON.stringify(jsonValue, null, " ") +
+                    "\n~~~";
+            }
+
+            // debug.
+            console.log("サマリー結果: \n" + sumTxt);
+            console.log("\n");
 
             // サマリーに文書を登録 (既存の場合は上書き)
             summary.put(textDocName, new VSummaryValue(sumTxt, textUrl));
 
             // ── 本文テキストの前処理 ──
             // 要約生成後に本文を前処理する.
-            text = Conv.stripMarkdown(text);
-            text = Conv.exclusionText(text);
-            text = Conv.trimEnterText(text);
+            text = Conv.stripMarkdown(text); // マークダウン除去
+            text = Conv.exclusionText(text); // 全角スペース・\r・\t 除去
+            text = Conv.trimEnterText(text); // 余分な空行除去
 
             // 要約テキストを本文先頭に付加する.
             // これにより各チャンクに文書全体のコンテキストが加わり、検索精度が向上する.
@@ -1439,14 +1522,19 @@
                 chunkString,
                 message,
             );
-            //console.log("ragPrompt: " + ragPrompt);
-            //console.log("\n\n\n");
             // Rag検索を実行.
-            return await LlamaCpp.getInferenceMessage(
+            let ret = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
                 ragPrompt,
                 temperature,
             );
+            // AI回答の文字列に</think>が設定されている場合.
+            // この文字以降のものだけを採用する.
+            const p = ret.indexOf("</think>");
+            if (p != -1) {
+                ret = ret.substring(p + 8).trim();
+            }
+            return ret;
         } finally {
             // 利用終了.
             if (ifObj != null) {

@@ -44,6 +44,9 @@
     /** llama.cpp タイプ: 組み込み (埋め込み) モード */
     const LLAMA_CPP_TYPE_EMBEDDING = 1;
 
+    /** fetchタイムアウト:ミリ秒設定(5分) */
+    const DEFAULT_FETCH_TIMEOUT = 60000 * 5;
+
     /** デフォルトパス. */
     const DEFAULT_PATH = "./";
 
@@ -91,30 +94,49 @@
     };
 
     /** サマリー生成の Temperature デフォルト値 (正確性重視: 0.1-0.5) */
-    const DEFAULT_SUMMARY_TEMPERATURE = 0.5;
+    const DEFAULT_SUMMARY_TEMPERATURE = 0.25;
 
     /**
-     * RAG 推論の Temperature デフォルト値 (正確性重視寄り: 0.15).
+     * RAG 推論の Temperature デフォルト値 (正確性重視寄り: 0.25).
      * RAG では参考文書に忠実に答えさせるため低めに設定する.
      */
-    const DEFAULT_RAG_TEMPERATURE = 0.5;
+    const DEFAULT_RAG_TEMPERATURE = 0.25;
 
     /**
      * サマリー問い合わせプロンプトのデフォルトフォーマット.
      *
-     * <reasoning_mode> タグで推論モードを指定し、テキストのサマリーを日本語で生成させる.
-     *
      * プレースホルダー:
+     *   {{fileName}}      : 対象のファイル名
      *   {{text}}          : サマリー化対象のテキスト
      */
     const SUMMARY_REQUEST_FORMAT =
-        "# 以下の内容のサマリーを日本語で詳しくまとめて頂きたい。\n\n ---\n\n {{text}}";
+        "### 指示\n" +
+        "あなたは日本語のプロの編集者で文書の分類(タグ)・カテゴリ・要約(サマリー)を編集する専門家で、以下の「タイトルと参考文書」に従って回答してください。\n" +
+        "####「タグ」は「カテゴリ」を更に固有定義化した「１つのジャンル」で表現してください。たとえば `プログラム` や `生活` や `裁判` や `アウトドア` のようにジャンル的なもので。\n" +
+        "####「カテゴリ」は「サマリー」より簡潔に「1つのワード」「最大でも体言止めの短いフレーズで」「内容を最も象徴する『名詞』のみ」で表現してください。\n" +
+        "####「サマリー」は参考文書内容として、RAGが二次利用できる形「文書内容の要点をまとめ、AIが理解しやすい内容」でまとめてください。\n\n\n" +
+        "### 回答形式\n" +
+        "以下のように tagとcategoryは json format 出力対応（JSON.parseが行える形式）を必ず厳守で：\n" +
+        "~~~json\n" +
+        "{\n" +
+        '"tag":（タグ内容: Array）, \n' +
+        '"category":（カテゴリ内容: Array）,\n' +
+        "}\n" +
+        "~~~\n\n" +
+        "（サマリー内容）\n\n" +
+        "### タイトル\n" +
+        "{{fileName}}\n\n" +
+        "### 参考文書\n" +
+        "{{text}}\n\n" +
+        "--- \n" +
+        "それでは上記の【回答形式】を厳守で日本語(必須)で回答を開始してください。\n" +
+        "回答：";
 
     /** ベクトル検索の最大取得件数デフォルト値 */
     const DEFAULT_VECTOR_SEARCH_LENGTH = 30;
 
     /** RAG リクエストに含めるチャンク数のデフォルト値 */
-    const DEFAULT_RAG_REQUEST_CHANK_LENGTH = 6;
+    const DEFAULT_RAG_REQUEST_CHANK_LENGTH = 7;
 
     /**
      * RAG リクエスト内の 1 チャンク分プロンプトフォーマットのデフォルト値.
@@ -128,8 +150,8 @@
      *   {{chunkeds}}: ベクトル座標元のテキスト塊群.
      */
     const DEFAULT_RAG_REQUEST_CHUNK_FORMAT =
-        "##【{{no}} 参考文書名:{{name}}】(参考文書URL: {{url}}, 類似度:{{score}})\n" +
-        "```\n{{summary}}\n```\n{{chunkeds}}";
+        "- 【{{no}} 参考文書名:{{name}}】(参考文書URL: {{url}}, 類似度:{{score}})\n" +
+        "サマリー: \n{{summary}}\n\n該当箇所:\n{{chunkeds}}";
 
     /**
      * RAG 問い合わせプロンプト全体のフォーマットのデフォルト値.
@@ -142,23 +164,30 @@
      *   {{message}}        : ユーザーの質問文
      */
     const DEFAULT_RAG_REQUEST_FORMAT =
-        "# あなたは日本語で回答する専門家アシスタントです。\n" +
-        "　以下の参考文書を使って、質問者の意見を汲んで「分かりやすく質問の趣旨を詳らか」に答えてください。\n" +
-        "　参考文書の内容に対して該当質問の回答が無く質問に答えられない場合は「情報はありませんでした。」と必ず答えてください。\n" +
-        "　一方で「情報はありませんでした。」以外の回答の場合は、以下の指示に従ってください。\n" +
-        "    - 回答作成で参照した参考文書名を、リスト型で「URLリンクのmarkdown形式」で行い、\n" +
-        "    1から始まるリスト番号を「参考文書名」の前に必ず記載してください。\n" +
-        "    - 具体的には以下のマークダウンのフォーマットで記載してください。\n" +
-        "      ```# 参照文書一覧\n" +
-        "        {{リスト番号}}. [{{参考文書名}}]({{参考文書URL}})```\n" +
-        "    - 「参考文書」は、回答内容の「一番最後の行に列挙」タイトルとして「参照文書一覧」を必ず記載してください。\n" +
-        "    - 回答に関する参照文書一覧には、利用・参照しなかった「参考文書名」は列挙しないでください。\n" +
-        "    - 回答が「情報はありませんでした。」以外の場合は「情報はありませんでした。」の文字を利用しないでください。\n" +
-        "    \n" +
-        "以上の条件で回答してください。\n" +
-        "---\n\n" +
-        "{{chunkMessages}}\n" +
-        "質問: {{message}}\n" +
+        "### 指示\n" +
+        "あなたは日本語で回答する専門家です。以下の「参考文書」に基づいて「質問」に「回答形式」に従って回答してください。\n" +
+        "回答結果に対する参考文書の ** 採用数に応じて **「回答形式」を【完全に切り替えて】下さい。\n" +
+        "また ** 回答形式 ** は「パターン１」および「パターン２」のどちらかを必ず採用して下さい。\n" +
+        "\n" +
+        "### 回答形式\n" +
+        "####【パターン1: 回答作成に対して、参考文書を採用した件数が「存在する」場合】\n" +
+        "** 原則: 回答形式のフォーマットに必ず従うこと **: \n" +
+        "【回答】\n" +
+        "（回答本文）\n" +
+        "【参照文書一覧】\n" +
+        "1. [参考文書名1](参考文書URL1)\n" +
+        "2. [参考文書名2](参考文書URL2)\n" +
+        "※注意: 回答結果で採用された「参照文書」以外は「参照文書一覧」に表示しないで下さい。\n" +
+        "\n" +
+        "####【パターン2: 回答作成に対して、参考文書を採用した件数が「存在しない」場合】\n" +
+        "情報はありませんでした。\n" +
+        "※注意: この条件の場合「参照文書一覧」という文字列やURLは、1文字も出力してはいけません。\n\n" +
+        "### 参考文書\n" +
+        "{{chunkMessages}}\n\n" +
+        "### 質問\n" +
+        "{{message}}\n\n" +
+        "--- \n" +
+        "それでは上記の【回答形式】のルールを厳守で日本語で回答を開始してください。\n" +
         "回答:";
 
     /** デフォルトの設定ファイルディレクトリパス */
@@ -307,7 +336,7 @@
         constructor() {
             // ─── ファイルパス ───────────────────────────────────────
             /** ディレクトリパス.  */
-            this.dirPath = DEFAULT_VECTOR_STORE_PATH;
+            this.dirPath = DEFAULT_PATH;
 
             /** vectorStore 格納先パス */
             this.vectorStorePath = DEFAULT_VECTOR_STORE_PATH;
@@ -331,6 +360,9 @@
 
             /** llama.cpp ヘルスチェック間隔 (ミリ秒) */
             this.healthCheckTiming = DEFAULT_HEALTH_CHECK_TIMING;
+
+            // ─── fetchタイムアウト ───────────────────────────────────────
+            this.fetchTimeout = DEFAULT_FETCH_TIMEOUT;
 
             // ─── チャンク設定 ───────────────────────────────────────
             /** チャンクの最大文字数 */
@@ -360,7 +392,7 @@
             /**
              * サマリー問い合わせプロンプトフォーマット.
              * getSummaryRequest() 経由で使用すること.
-             * プレースホルダー: {{text}}
+             * プレースホルダー: {{text}} {{fileName}}
              */
             this.summaryRequestFormat = SUMMARY_REQUEST_FORMAT;
 
@@ -400,14 +432,22 @@
          *
          * summaryRequestFormat 内の {{text}} を
          * Conv.keyValueTemplate() で置き換える.
-         * @param  {string} src   オリジナルの問い合わせ定義文字を設定します
-         *                        (指定しない場合はコンフィグ値を利用).
-         * @param  {string} text  要約対象のテキスト
-         * @return {string}       llama.cpp に渡すプロンプト文字列
+         * @param  {string} src       オリジナルの問い合わせ定義文字を設定します
+         *                            (指定しない場合はコンフィグ値を利用).
+         * @param  {string} fileName  対象のファイル名.
+         * @param  {string} text      要約対象のテキスト
+         * @return {string}           llama.cpp に渡すプロンプト文字列
          */
-        getSummaryRequest(src, text) {
+        getSummaryRequest(src, fileName, text) {
             src = src || this.summaryRequestFormat;
-            return Conv.keyValueTemplate(src, "text", text);
+            fileName = fileName || "";
+            return Conv.keyValueTemplate(
+                src,
+                "fileName",
+                fileName,
+                "text",
+                text,
+            );
         }
 
         /**
@@ -493,7 +533,11 @@
                         file,
                 );
             }
-            const raw = fs.readFileSync(path + "/" + file, "utf8");
+            // json内のコメントを除去してJSONパース.
+            const raw = stripComments(
+                fs.readFileSync(path + "/" + file, "utf8"),
+            );
+            // コメントを除去して、JSONパース.
             this.setConfig(JSON.parse(raw));
             // ロードコンフィグ完了.
             this.loadConfigFlag = true;
@@ -545,6 +589,11 @@
                 ),
             );
 
+            // ─── fetchタイムアウト ───────────────────────────────────────
+            this.fetchTimeout = Conv.getInt(
+                _mapToGetValue(json, "fetchTimeout", this.fetchTimeout),
+            );
+
             // ─── ファイルパス ───────────────────────────────────────
             this.dirPath = Conv.getString(
                 _mapToGetValue(json, "dirPath", this.dirPath),
@@ -560,9 +609,15 @@
             this.chunkSize = Conv.getInt(
                 _mapToGetValue(json, "chunkSize", this.chunkSize),
             );
-            this.overlapSize = Conv.getInt(
-                _mapToGetValue(json, "overlapSize", this.overlapSize),
-            );
+            // overlapSize がJSONで設定されている場合.
+            if (json.overlapSize != null && json.overlapSize != undefined) {
+                this.overlapSize = Conv.getInt(
+                    _mapToGetValue(json, "overlapSize", this.overlapSize),
+                );
+            } else {
+                // overlapSize がJSONで設定されていない場合.
+                this.overlapSize = chunkSizeToOverlapSize(this.chunkSize);
+            }
 
             // ─── サマリー設定 ───────────────────────────────────────
             this.summaryTemperature = Conv.getFloat(
@@ -645,6 +700,130 @@
             return _getOptimalLlamaCppInfo(this.embeddingList);
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // jsonコメント除去.
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 指定位置の文字がバックスラッシュでエスケープされているかを判定する内部関数.
+     *
+     * 直前に連続するバックスラッシュの数が奇数の場合はエスケープされている.
+     * 例: \\" → バックスラッシュ自体がエスケープされているので " は有効な区切り
+     *
+     * Java 版の isEscaped(str, i) に相当.
+     *
+     * @param  {string} str  対象文字列
+     * @param  {number} i    確認する文字のインデックス
+     * @return {boolean}     true = エスケープされている
+     */
+    function _isEscaped(str, i) {
+        let count = 0;
+        let j = i - 1;
+        while (j >= 0 && str[j] === "\\") {
+            count++;
+            j--;
+        }
+        // バックスラッシュの数が奇数 → エスケープされている
+        return count % 2 === 1;
+    }
+
+    /**
+     * 文字列からコメントを除去して返す.
+     *
+     * ブロックコメント内・行コメント内の改行は保持する.
+     * (行番号がずれないようにするため Java 版と同様の仕様)
+     *
+     * @param  {string}  str  処理対象の文字列
+     * @param  {boolean} h2   true の場合、-- 形式のコメントも除去する (SQL 用)
+     * @return {string}       コメントを除去した文字列
+     */
+    const stripComments = function (str, h2) {
+        h2 = h2 == true;
+        if (!str) return "";
+
+        const len = str.length;
+        let buf = "";
+        let quote = -1; // -1: クォーテーション外 / それ以外: クォーテーション文字コード
+        let comment = -1; // -1: コメント外 / 1: 行コメント / 2: ブロックコメント
+
+        for (let i = 0; i < len; i++) {
+            const c = str[i];
+
+            // ── コメント内 ──────────────────────────────────────────
+            if (comment !== -1) {
+                if (comment === 1) {
+                    // 行コメント (//, #, --): 改行で終了
+                    if (c === "\n") {
+                        buf += c;
+                        comment = -1;
+                    }
+                    // 改行以外はバッファに追加しない (= コメントを除去)
+                } else {
+                    // ブロックコメント (/* ... */): */ で終了
+                    if (c === "\n") {
+                        // 改行はブロックコメント内でも保持する
+                        buf += c;
+                    } else if (c === "*" && i + 1 < len && str[i + 1] === "/") {
+                        // */ を検出したらブロックコメント終了
+                        i++; // '/' をスキップ
+                        comment = -1;
+                    }
+                    // それ以外はバッファに追加しない
+                }
+                continue;
+            }
+
+            // ── クォーテーション内 ──────────────────────────────────
+            if (quote !== -1) {
+                buf += c;
+                // 対応するクォーテーション文字かつエスケープされていなければ終了
+                if (c === String.fromCharCode(quote) && !_isEscaped(str, i)) {
+                    quote = -1;
+                }
+                continue;
+            }
+
+            // ── 通常文字 ────────────────────────────────────────────
+
+            // クォーテーション開始 (" または ')
+            if ((c === '"' || c === "'") && !_isEscaped(str, i)) {
+                quote = c.charCodeAt(0);
+                buf += c;
+                continue;
+            }
+
+            // // または /* ... */
+            if (c === "/" && i + 1 < len) {
+                const n = str[i + 1];
+                if (n === "/") {
+                    comment = 1;
+                    continue;
+                } // 行コメント開始
+                if (n === "*") {
+                    comment = 2;
+                    i++;
+                    continue;
+                } // ブロックコメント開始 ('*' をスキップ)
+            }
+
+            // -- (h2=true の場合のみ有効: SQL スタイル行コメント)
+            if (h2 && c === "-" && i + 1 < len && str[i + 1] === "-") {
+                comment = 1;
+                continue;
+            }
+
+            // # (Shell / Python スタイル行コメント)
+            if (c === "#") {
+                comment = 1;
+                continue;
+            }
+
+            buf += c;
+        }
+
+        return buf;
+    };
 
     // ═══════════════════════════════════════════════════════════════
     // シングルトンインスタンス

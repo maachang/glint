@@ -238,6 +238,11 @@
         return args[args.length - 1];
     };
 
+    // 指定パラメータ位置の内容を取得.
+    o.getParams = function (no) {
+        return args[no | 0];
+    };
+
     // 起動パラメータ数を取得.
     // 戻り値: 起動パラメータ数が返却されます.
     o.length = function () {
