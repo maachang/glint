@@ -381,7 +381,7 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * 複数のパスを結合.
+     * [private]複数のパスを結合.
      * @param {arguments} パスを複数設定します.
      * @return {string} 結合されたパスが返却されます.
      */
@@ -407,7 +407,7 @@
     };
 
     /**
-     * ディレクトリパスの末尾スラッシュを除去し、
+     * [private]ディレクトリパスの末尾スラッシュを除去し、
      * グループ名から既知の拡張子 (.vgs / .vss) を除去して返す.
      *
      * ユーザーが groupName に拡張子を含めて渡してきた場合でも
@@ -431,7 +431,7 @@
     };
 
     /**
-     * ディレクトリパス・グループ名・拡張子を結合してフルファイルパスを返す.
+     * [private]ディレクトリパス・グループ名・拡張子を結合してフルファイルパスを返す.
      *
      * 例: ('/data', 'docs', '.vgs') → '/data/docs.vgs'
      *
@@ -446,7 +446,7 @@
     };
 
     /**
-     * 指定パスのファイルが存在するかを確認する.
+     * [private]指定パスのファイルが存在するかを確認する.
      * stat に失敗した場合 (ファイルがない場合) は false を返す.
      *
      * @param  {string}  dirPath   ディレクトリパス
@@ -462,7 +462,7 @@
     };
 
     /**
-     * ファイルの最終更新時刻をミリ秒で返す.
+     * [private]ファイルの最終更新時刻をミリ秒で返す.
      * ファイル変更検出 (updateVectorGroupFileNames) で使用する.
      *
      * @param  {string} filePath  フルファイルパス
@@ -473,7 +473,7 @@
     };
 
     /**
-     * 指定ディレクトリ直下のファイル名一覧を返す.
+     * [private]指定ディレクトリ直下のファイル名一覧を返す.
      * サブディレクトリは除外する.
      *
      * @param  {string}   dirPath  ディレクトリパス
@@ -490,7 +490,7 @@
     };
 
     /**
-     * ファイルを削除する.
+     * [private]ファイルを削除する.
      * 削除に成功した場合は null、失敗した場合は Error オブジェクトを返す.
      * (throw せずに返すことで、呼び出し側が複数ファイル削除後にまとめてハンドリングできる)
      *
@@ -508,7 +508,7 @@
     };
 
     /**
-     * ファイル名から拡張子を除去して返す.
+     * [private]ファイル名から拡張子を除去して返す.
      * 拡張子がない場合はそのまま返す.
      *
      * 例: 'readme.txt' → 'readme'
@@ -523,7 +523,7 @@
     };
 
     /**
-     * 複数の Uint8Array / Buffer を1つの Buffer に結合する.
+     * [private]複数の Uint8Array / Buffer を1つの Buffer に結合する.
      *
      * シリアライズ時に各フィールドのバイト列をパーツとして parts[] に積んでおき、
      * 最後にこの関数で一括結合する運用にしている.
@@ -548,7 +548,7 @@
     };
 
     /**
-     * ディレクトリを作成(mkdir -p {name})します.
+     * [private]ディレクトリを作成(mkdir -p {name})します.
      * @param {string} dir  作成対象のディレクトリを設定します.
      * @return {boolean} true の場合、ディレクトリ生成に成功しました.
      */
@@ -562,7 +562,7 @@
     };
 
     /**
-     * vectorStore用ディレクトリパスを取得.
+     * [private]vectorStore用ディレクトリパスを取得.
      * @param {string} dirPath 対象のディレクトリパスを設定します.
      *                         null or undefined の場合はconfig定義の
      *                         VectorStoreディレクトリが生成されます.
@@ -579,7 +579,7 @@
     };
 
     /**
-     * vectorStore用ディレクトリを設定して、ディレクトリが存在しない場合は生成する.
+     * [private]vectorStore用ディレクトリを設定して、ディレクトリが存在しない場合は生成する.
      * @param {string} dirPath 対象のディレクトリパスを設定します.
      *                         null or undefined の場合はconfig定義の
      *                         VectorStoreディレクトリが生成されます.
@@ -610,7 +610,7 @@
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {string}        groupName  グループ名
      * @param  {string}        dirPath    [*]ディレクトリパス
-     * @return {VectorChunk[]}
+     * @return {VectorChunk[]} vectorGroupの中核VectorChunked群が返却されます.
      */
     const loadGroup = function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
@@ -639,7 +639,7 @@
      *     [N×4 bytes] 埋め込みベクトル (float32 × N)
      *
      * @param  {Buffer}        binary  .vgs ファイルの生バイナリ
-     * @return {VectorChunk[]}
+     * @return {VectorChunk[]} vectorGroupの中核VectorChunked群が返却されます.
      * @throws {Error}         シンボルが一致しない場合
      */
     const loadGroupFromBinary = function (binary) {
@@ -702,7 +702,7 @@
      * 各フィールドを parts[] に積んでから _concatBytes() で一括結合する.
      *
      * @param  {VectorChunk[]} chunks  シリアライズするチャンク配列
-     * @return {Buffer}
+     * @return {Buffer} バイナリ情報が返却されます.
      */
     const saveGroupToBinary = function (chunks) {
         const allLen = chunks.length;
@@ -744,7 +744,7 @@
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {string}        groupName  グループ名
      * @param  {string}        dirPath    [*]ディレクトリパス
-     * @return {VectorSummary}
+     * @return {VectorSummary} サマリーオブジェクトが返却されます.
      */
     const loadSummary = function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
@@ -773,7 +773,7 @@
      *     [8 bytes] 登録時刻 (int64, Unix タイムスタンプ ms)
      *
      * @param  {Buffer}        binary  .vss ファイルの生バイナリ
-     * @return {VectorSummary}
+     * @return {VectorSummary} サマリーオブジェクトが返却されます.
      * @throws {Error}         シンボルが一致しない場合
      */
     const loadSummaryFromBinary = function (binary) {
@@ -999,7 +999,7 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * サマリー返却のJSON変換.
+     * [private]サマリー返却のJSON変換.
      * @param {string} sumTxt サマリー返却の文字列を設定します.
      * @returns {tag, category, summary} JSON解析結果が返却されます.
      */
@@ -1021,39 +1021,25 @@
         } else {
             return null;
         }
-        // json文字列を取得.
-        let jsonTxt = sumTxt.substring(7, ep).trim();
-        // サマリー文字列を取得.
-        let summary = sumTxt.substring(ep + 3).trim();
-
-        // json文字列から改行を削除.
-        //jsonTxt = jsonTxt.replace(/\r?\n/g, "");
-        // {xxx: [],} や {xxx: ["hoge",]} の余分なカンマを削除.
-        jsonTxt = jsonTxt.replace(/,\s*([\]}])/g, "$1");
-
-        // jsonをパース.
-        let jsonValue = null;
         try {
-            // jsonパース実行.
-            jsonValue = JSON.parse(jsonTxt);
-        } catch (e) {
-            try {
-                // json内の key = "key" に変換する.
-                jsonTxt.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":');
-                // jsonパース実行.
-                jsonValue = JSON.parse(jsonTxt);
-            } catch (ee) {
-                console.log("#[ERROR]JSON.parse: " + jsonTxt);
-                throw ee;
-            }
-        }
-        // サマリー内容の整形.
-        summary = Conv.stripMarkdown(summary); // マークダウン除去
-        summary = Conv.exclusionText(summary); // 全角スペース・\r・\t 除去
-        summary = Conv.trimEnterText(summary); // 余分な空行除去
+            // json文字列を取得.
+            let jsonTxt = sumTxt.substring(7, ep).trim();
+            // サマリー文字列を取得.
+            let summary = sumTxt.substring(ep + 3).trim();
 
-        jsonValue["summary"] = summary;
-        return jsonValue;
+            // jsonパース.
+            const jsonValue = Conv.parseJson(jsonTxt);
+            // サマリー内容の整形.
+            summary = Conv.stripMarkdown(summary); // マークダウン除去
+            summary = Conv.exclusionText(summary); // 全角スペース・\r・\t 除去
+            summary = Conv.trimEnterText(summary); // 余分な空行除去
+
+            jsonValue["summary"] = summary;
+            return jsonValue;
+        } catch (e) {
+            console.warn("#jsonパースに失敗: " + sumTxt);
+        }
+        return null;
     };
 
     /**
@@ -1069,18 +1055,18 @@
      *   6. stringToChunks() でチャンクに分割し LlamaCpp.getEmbedding() でベクトル化する.
      *   7. 全チャンクを .vgs に、サマリーを .vss に保存する.
      *
-     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param {string} groupName    グループ名
      * @param {string} textFileName 追加するファイル名 (拡張子込み, 例: 'readme.txt')
      * @param {string} textUrl      元テキストの参照先 URL
      * @param {string} text         テキスト本文
-     * @param {string} embBaseUrl   [*]埋め込みモデルサーバーの URL (例: 'http://localhost:8080')
-     * @param {string} ifBaseUrl    [*]推論モデルサーバーの URL (例: 'http://localhost:8081')
-     * @param {string} dirPath      [*]ディレクトリパス
-     * @param {number} chunkSize    [*]1 チャンクの最大文字数
-     * @param {number} overlap      [*]オーバーラップ文字数
-     * @param {number} temperature  [*]サマリー推論の正確性を示す値を設定.
-     * @param {string} sumPrompt    [*]サマリープロンプトを設定します.
+     * @param {object} options      オプションパラメータを設定します.
+     *   - {string} embBaseUrl      埋め込みモデルサーバーの URL (例: 'http://localhost:8080')
+     *   - {string} ifBaseUrl       推論モデルサーバーの URL (例: 'http://localhost:8081')
+     *   - {string} dirPath         ディレクトリパス
+     *   - {number} chunkSize       1 チャンクの最大文字数
+     *   - {number} overlap         オーバーラップ文字数
+     *   - {number} temperature     サマリー推論の正確性を示す値を設定.
+     *   - {string} sumPrompt       サマリープロンプトを設定します.
      * @return {Promise<void>}
      * @throws {Error} .vss が存在しない場合、または llama.cpp サーバーエラーの場合
      */
@@ -1089,21 +1075,23 @@
         textFileName,
         textUrl,
         text,
-        embBaseUrl,
-        ifBaseUrl,
-        dirPath,
-        chunkSize,
-        overlap,
-        temperature,
-        sumPrompt,
+        options,
     ) {
-        // ディレクトリ作成を行い、正しいディレクトリパスを返却.
-        dirPath = _mkdirsToVectorStore(dirPath);
+        // options が設定せれていない場合.
+        options = options || {};
         // コンフィグから設定する.
         const conf = Config.getInstance();
-        chunkSize = chunkSize || conf.chunkSize;
-        overlap = overlap || conf.overlapSize;
-        temperature = temperature || conf.summaryTemperature;
+        // オプションパラメータを取得.
+        let embBaseUrl = options.embBaseUrl || null;
+        let ifBaseUrl = options.ifBaseUrl || null;
+        let dirPath = options.dirPath || null;
+        let chunkSize = options.chunkSize || conf.chunkSize;
+        let overlap = options.overlap || conf.overlapSize;
+        let temperature = options.temperature || conf.summaryTemperature;
+        let sumPrompt = options.sumPrompt || null;
+
+        // ディレクトリ作成を行い、正しいディレクトリパスを返却.
+        dirPath = _mkdirsToVectorStore(dirPath);
 
         // embBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let embObj = null;
@@ -1151,9 +1139,11 @@
             }
 
             // ── 要約テキスト生成 (前処理前の生テキストで推論) ──
-            // Conv 前処理を適用する前の自然な文章を推論に渡す.
-            // llama.cpp に送ることで、要約の品質と一貫性を高める.
-            // 要約結果だけ Conv で後処理する.
+            // ここでは主に以下の内容を生成する
+            // - tag: 対象文書のジャンル的内容
+            // - category: 対象文書のカテゴリ的内容
+            // - summary: 対象文書のサマリー的内容
+            // これらを踏まえて、RAG検索に対して影響力強化を与える.
 
             let tm = Date.now();
             // debug.
@@ -1173,25 +1163,48 @@
 
             // AI回答の文字列に</think>が設定されている場合.
             // この文字以降のものだけを採用する.
+            // ※このタグは推論中のゴミのようなもの.
             const p = sumTxt.indexOf("</think>");
             if (p != -1) {
                 sumTxt = sumTxt.substring(p + 8).trim();
             }
 
             // json変換処理.
-            const jsonValue = _resultSummayToJson(sumTxt);
+            let jsonValue = _resultSummayToJson(sumTxt);
+
+            // topIndex(タグ、カテゴリなど)
+            let topIndex = "";
 
             // jsonパースが成功している場合.
             if (jsonValue != null) {
+                // ファイル名をタイトルとしてセット.
+                topIndex += "title:'" + textDocName + "'";
+                // topIndexを生成.
+                for (let k in jsonValue) {
+                    // サマリー以外を採用する.
+                    if (k == "summary") {
+                        continue;
+                    }
+                    if (topIndex.length > 0) {
+                        topIndex += ",";
+                    }
+                    topIndex += k + ":'" + jsonValue[k] + "'";
+                }
+                topIndex = topIndex.trim();
+
                 // JSON内容を文字列に置き換える.
                 sumTxt =
                     "~~~json\n" +
                     JSON.stringify(jsonValue, null, " ") +
                     "\n~~~";
+
+                // jsonValueクリア.
+                jsonValue = null;
             }
 
             // debug.
             console.log("サマリー結果: \n" + sumTxt);
+            console.log("topIndex: " + topIndex);
             console.log("\n");
 
             // サマリーに文書を登録 (既存の場合は上書き)
@@ -1205,7 +1218,7 @@
 
             // 要約テキストを本文先頭に付加する.
             // これにより各チャンクに文書全体のコンテキストが加わり、検索精度が向上する.
-            text = sumTxt + "\n\n" + text;
+            text = "【サマリー】: \n" + sumTxt + "\n\n 【本文】: \n" + text;
             sumTxt = null;
 
             // ── チャンク分割 + 埋め込みベクトル化 ──
@@ -1214,12 +1227,38 @@
             const chunkLen = chunkTextList.length;
             let i, chkTxt, emb;
             tm = Date.now();
+
+            // topIndexが有効な場合は、対象のVectorChunkを作成.
+            if (topIndex.length > 0) {
+                // topIndexの長さがchunkLenを超える場合は、その長さに合わせる.
+                if (topIndex.length > chunkLen) {
+                    topIndex = topIndex.substring(0, chunkLen);
+                }
+                emb = await LlamaCpp.getEmbedding(embBaseUrl, topIndex);
+                list.push(
+                    new VectorChunk(
+                        topIndex,
+                        list.length,
+                        chunkLen,
+                        textDocName,
+                        emb,
+                    ),
+                );
+            }
+
+            // 組み込みインデックスでVectorChunkを作成.
             console.log("start.getEmbedding(" + chunkLen + ")");
             for (i = 0; i < chunkLen; i++) {
                 chkTxt = chunkTextList[i];
                 emb = await LlamaCpp.getEmbedding(embBaseUrl, chkTxt);
                 list.push(
-                    new VectorChunk(chkTxt, i, chunkLen, textDocName, emb),
+                    new VectorChunk(
+                        chkTxt,
+                        list.length,
+                        chunkLen,
+                        textDocName,
+                        emb,
+                    ),
                 );
             }
             console.log(
@@ -1342,33 +1381,31 @@
      *
      * 【使い方】
      *   const vg = loadVectorGroup('docs', '/data');
-     *   const results = await searchEmbedding(vg, 'RAGとは何ですか?', 5, 500, 50, 'http://localhost:8080');
+     *   const results = await searchEmbedding(vg, 'RAGとは何ですか?',
+     *       {length: 5, chunkSize: 500, overlapSize: 50, embBaseUrl: 'http://localhost:8080'});
      *     or
      *   const results = await searchEmbedding(vg, 'RAGとは何ですか?'); // 第３引数から省略可能.
      *   // results[0] が最もクエリに近いチャンク
      *
-     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {VectorGroup} vg             検索対象の VectorGroup
      * @param  {string}      message        自然言語のクエリ文字列
-     * @param  {number}      [*]length      1クエリチャンクあたりの最大取得件数(検索候補枠)
-     * @param  {number}      [*]chunkSize   クエリ分割時の最大文字数
-     * @param  {number}      [*]overlapSize クエリ分割時のオーバーラップ文字数
-     * @param  {string}      [*]embBaseUrl  埋め込みモデルサーバーの URL
+     * @param {object}       options        オプションパラメータを設定します.
+     *   - {number}          length         1クエリチャンクあたりの最大取得件数(検索候補枠)
+     *   - {number}          chunkSize      クエリ分割時の最大文字数
+     *   - {number}          overlapSize    クエリ分割時のオーバーラップ文字数
+     *   - {string}          embBaseUrl     埋め込みモデルサーバーの URL
      * @return {Promise<VectorChunk[]>}     スコア降順にソートされた結果配列
      */
-    const searchEmbedding = async function (
-        vg,
-        message,
-        length,
-        chunkSize,
-        overlap,
-        embBaseUrl,
-    ) {
+    const searchEmbedding = async function (vg, message, options) {
+        // options が設定せれていない場合.
+        options = options || {};
         // コンフィグから設定する.
         const conf = Config.getInstance();
-        chunkSize = chunkSize || conf.chunkSize;
-        overlap = overlap || conf.overlapSize;
-        length = length || conf.vectorSearchLength;
+        // オプションパラメータを取得.
+        let length = options.length || conf.vectorSearchLength;
+        let chunkSize = options.chunkSize || conf.chunkSize;
+        let overlap = options.overlap || conf.overlapSize;
+        let embBaseUrl = options.embBaseUrl || null;
 
         // embBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let embObj = null;
@@ -1413,31 +1450,33 @@
     /**
      * searchEmbedding での検索結果を設定して、Rag検索を実行.
      *
-     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param {VectorGroup} vg 検索対象の VectorGroup を設定します.
      * @param {VectorChunk[]} resSearchEmb [searchEmbedding] の処理結果を設定します.
      * @param {string} message 自然言語のクエリ文字列
-     * @param {number} topLength [*]RAGプロンプトに含めるチャンク数を設定します.
-     * @param {number} temperature [*]RAG推論の正確性を示す値を設定します.
-     * @param {string} ragRequestChunkFormat [*]RAGプロンプト内の1チャンク分フォーマットを設定します.
-     * @param {string} requestFormat [*]RAG プロンプト全体のフォーマットを設定します.
-     * @param {string} ifBaseUrl [*]推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
+     * @param {object} options オプションパラメータを設定します.
+     *   - {number} topLength RAGプロンプトに含めるチャンク数を設定します.
+     *   - {number} temperature RAG推論の正確性を示す値を設定します.
+     *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
+     *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
+     *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      * @return {Promise<string>} 回答内容が返却されます.
      */
     const searchInference = async function (
         vg,
         resSearchEmb,
         message,
-        topLength,
-        temperature,
-        ragRequestChunkFormat,
-        requestFormat,
-        ifBaseUrl,
+        options,
     ) {
+        // options が設定せれていない場合.
+        options = options || {};
+
         // コンフィグから設定する.
         const conf = Config.getInstance();
-        topLength = topLength || conf.ragRequestChunkLength;
-        temperature = temperature || conf.ragTemperature;
+        let topLength = options.topLength || conf.ragRequestChunkLength;
+        let temperature = options.temperature || conf.ragTemperature;
+        let ragRequestChunkFormat = options.ragRequestChunkFormat || null;
+        let requestFormat = options.requestFormat || null;
+        let ifBaseUrl = options.ifBaseUrl || null;
 
         // ifBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let ifObj = null;
@@ -1543,6 +1582,30 @@
         }
     };
 
+    /**
+     * Rag検索を実行.
+     *
+     * @param {VectorGroup} vg 検索対象の VectorGroup を設定します.
+     * @param {string} message 自然言語のクエリ文字列
+     * @param {object} options オプションパラメータを設定します.
+     *   - {number} length 1クエリチャンクあたりの最大取得件数(検索候補枠)
+     *   - {number} chunkSize クエリ分割時の最大文字数
+     *   - {number} overlapSize クエリ分割時のオーバーラップ文字数
+     *   - {string} embBaseUrl 埋め込みモデルサーバーの URL
+     *   - {number} topLength RAGプロンプトに含めるチャンク数を設定します.
+     *   - {number} temperature RAG推論の正確性を示す値を設定します.
+     *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
+     *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
+     *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
+     * @return {Promise<string>} 回答内容が返却されます.
+     */
+    const searchRag = async function (vg, message, options) {
+        // 組み込み検索.
+        const resSearchEmb = await searchEmbedding(vg, message, options);
+        // rag検索.
+        return await searchInference(vg, resSearchEmb, message, options);
+    };
+
     // ═══════════════════════════════════════════════════════════════
     // VectorGroupFile 変更検出
     // ═══════════════════════════════════════════════════════════════
@@ -1636,6 +1699,7 @@
         stringToChunks,
         searchEmbedding,
         searchInference,
+        searchRag,
         putTextFileToVectorGroup,
         removeTextFileFromVectorGroup,
         updateVectorGroupFileNames,

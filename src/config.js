@@ -116,7 +116,8 @@
         "####「カテゴリ」は「サマリー」より簡潔に「1つのワード」「最大でも体言止めの短いフレーズで」「内容を最も象徴する『名詞』のみ」で表現してください。\n" +
         "####「サマリー」は参考文書内容として、RAGが二次利用できる形「文書内容の要点をまとめ、AIが理解しやすい内容」でまとめてください。\n\n\n" +
         "### 回答形式\n" +
-        "以下のように tagとcategoryは json format 出力対応（JSON.parseが行える形式）を必ず厳守で：\n" +
+        "以下のように tagとcategoryは json format 出力対応（JSON.parseが行える形式）を必ず厳守で\n" +
+        "※ 注意: 必ず *** ~~~json *** で json出力部分を囲う事を前提に「回答形式」の出力を行うこと\n\n" +
         "~~~json\n" +
         "{\n" +
         '"tag":（タグ内容: Array）, \n' +
@@ -171,13 +172,12 @@
         "\n" +
         "### 回答形式\n" +
         "####【パターン1: 回答作成に対して、参考文書を採用した件数が「存在する」場合】\n" +
-        "** 原則: 回答形式のフォーマットに必ず従うこと **: \n" +
         "【回答】\n" +
         "（回答本文）\n" +
         "【参照文書一覧】\n" +
         "1. [参考文書名1](参考文書URL1)\n" +
         "2. [参考文書名2](参考文書URL2)\n" +
-        "※注意: 回答結果で採用された「参照文書」以外は「参照文書一覧」に表示しないで下さい。\n" +
+        "※注意: 回答結果で採用された「参照文書」のみ「参照文書一覧」に表示してください。\n" +
         "\n" +
         "####【パターン2: 回答作成に対して、参考文書を採用した件数が「存在しない」場合】\n" +
         "情報はありませんでした。\n" +
@@ -259,10 +259,10 @@
         if (url.length === 0) {
             throw new Error(
                 "The URL for llamaCpp connection destination (type: " +
-                    type +
-                    ", no: " +
-                    no +
-                    ") is not set.",
+                type +
+                ", no: " +
+                no +
+                ") is not set.",
             );
         }
         return new LlamaCppInfo(type, url);
@@ -300,9 +300,9 @@
         } else {
             throw new Error(
                 "llamaCpp destination: " +
-                    name +
-                    " Invalid definition: " +
-                    typeof info,
+                name +
+                " Invalid definition: " +
+                typeof info,
             );
         }
         return out;
@@ -528,17 +528,17 @@
                 // ファイルが存在しない場合はエラー.
                 throw new Error(
                     "The target configuration file does not exist: " +
-                        path +
-                        "/" +
-                        file,
+                    path +
+                    "/" +
+                    file,
                 );
             }
             // json内のコメントを除去してJSONパース.
-            const raw = stripComments(
+            let jsonTxt = stripComments(
                 fs.readFileSync(path + "/" + file, "utf8"),
             );
             // コメントを除去して、JSONパース.
-            this.setConfig(JSON.parse(raw));
+            this.setConfig(Conv.parseJson(jsonTxt));
             // ロードコンフィグ完了.
             this.loadConfigFlag = true;
         }

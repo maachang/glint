@@ -375,6 +375,27 @@
         return ret;
     };
 
+    /**
+     * JSONを柔軟にパース処理.
+     * @param {string} jsonTxt パース対象のJSONテキストを設定します.
+     * @return {object} JSON.parseされた内容が返却されます.
+     */
+    const parseJson = function (jsonTxt) {
+        // {xxx: [],} や {xxx: ["hoge",]} の余分なカンマを削除.
+        jsonTxt = jsonTxt.replace(/,\s*([\]}])/g, "$1");
+        // JSONパース.
+        let ret = null;
+        try {
+            ret = JSON.parse(jsonTxt);
+        } catch (e) {
+            // json内の key = "key" に変換して、再度JSON.parseする.
+            ret = JSON.parse(
+                jsonTxt.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":'),
+            );
+        }
+        return ret;
+    };
+
     // ========================================================
     // モジュールエクスポート
     // ========================================================
@@ -396,6 +417,7 @@
             exclusionText,
             trimEnterText,
             keyValueTemplate,
+            parseJson,
         };
     } else {
         global.Conv = {
@@ -414,6 +436,7 @@
             exclusionText,
             trimEnterText,
             keyValueTemplate,
+            parseJson,
         };
     }
 })(typeof window !== "undefined" ? window : globalThis || this);
