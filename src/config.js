@@ -259,10 +259,10 @@
         if (url.length === 0) {
             throw new Error(
                 "The URL for llamaCpp connection destination (type: " +
-                type +
-                ", no: " +
-                no +
-                ") is not set.",
+                    type +
+                    ", no: " +
+                    no +
+                    ") is not set.",
             );
         }
         return new LlamaCppInfo(type, url);
@@ -300,9 +300,9 @@
         } else {
             throw new Error(
                 "llamaCpp destination: " +
-                name +
-                " Invalid definition: " +
-                typeof info,
+                    name +
+                    " Invalid definition: " +
+                    typeof info,
             );
         }
         return out;
@@ -423,6 +423,11 @@
 
             // ─── その他 ─────────────────────────────────
 
+            /**
+             * プロセス間ロックタイムアウト.
+             */
+            this.lockTimeout = -1;
+
             // configファイルをロードしたかのフラグ.
             this.loadConfigFlag = false;
         }
@@ -528,9 +533,9 @@
                 // ファイルが存在しない場合はエラー.
                 throw new Error(
                     "The target configuration file does not exist: " +
-                    path +
-                    "/" +
-                    file,
+                        path +
+                        "/" +
+                        file,
                 );
             }
             // json内のコメントを除去してJSONパース.
@@ -662,6 +667,11 @@
             );
             this.ragRequestFormat = Conv.getString(
                 _mapToGetValue(json, "ragRequestFormat", this.ragRequestFormat),
+            );
+
+            // ─── その他 ─────────────────────────────────
+            this.lockTimeout = Conv.getInt(
+                _mapToGetValue(json, "lockTimeout", this.lockTimeout),
             );
         }
 

@@ -1,5 +1,5 @@
 /**
- * VectorFile.js
+ * VectorGroup.js
  *
  * VectorStore の 2 種類のファイル (.vgs / .vss) に対する
  * 読み書き・管理処理をまとめたモジュール.
@@ -20,16 +20,12 @@
  *   VGFileInfo   : ファイル変更検出用のメタ情報 (グループ名・パス・更新時刻)
  *
  * 【公開関数一覧】
- *   loadGroup / loadGroupFromBinary     .vgs ファイルを読む
- *   saveGroup / saveGroupToBinary       .vgs ファイルを書く
- *   loadSummary / loadSummaryFromBinary .vss ファイルを読む
- *   saveSummary / saveSummaryToBinary   .vss ファイルを書く
- *   loadVectorSummary                   パス+グループ名から VectorSummary をロード
  *   loadVectorGroup                     パス+グループ名から VectorGroup をロード
- *   getFileTime                         ファイルの最終更新時刻を取得
- *   stringToChunks                      テキストをチャンク単位に分割
  *   putTextFileToVectorGroup            VectorGroup へテキストを追加・更新 (async)
  *   removeTextFileFromVectorGroup       VectorGroup からテキストを削除
+ *   searchEmbedding                     対象VectorGroupに対するベクトル座標検索.
+ *   searchInference                     searchEmbedding 結果を用いて、RAG検索.
+ *   searchVgRag                         searchEmbedding と searchInference を合わせた処理.
  *   updateVectorGroupFileNames          ディレクトリ内の変更グループを検出
  *
  * 【依存モジュール】
@@ -44,8 +40,7 @@
  *
  *   // テキストを VectorGroup に登録 (非同期)
  *   await putTextFileToVectorGroup(
- *     '/data', 'docs', 'readme.txt', 'https://example.com',
- *     textBody, 500, 50, 'http://localhost:8080'
+ *     `groupName`, 'docs', 'https://example.com/docs', docText
  *   );
  */
 
@@ -58,6 +53,8 @@
     const LlamaCpp = require("./llamaCpp");
     const Conv = require("./conv");
     const Config = require("./config");
+    const util = require("./util");
+    const sync = require("./sync");
 
     // ═══════════════════════════════════════════════════════════════
     // 定数
@@ -381,32 +378,6 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * [private]複数のパスを結合.
-     * @param {arguments} パスを複数設定します.
-     * @return {string} 結合されたパスが返却されます.
-     */
-    const _joinPath = function () {
-        let args = Array.prototype.slice.call(arguments);
-        // １つの配列で設定.
-        if (args.length == 1 && Array.isArray(args[0])) {
-            args = args[0];
-        }
-        const len = args.length;
-        let n;
-        let ret = "";
-        for (let i = 0; i < len; i++) {
-            if (i != 0) {
-                ret += "/";
-            }
-            n = args[i];
-            if (n.endsWith("/")) n = n.slice(0, -1);
-            if (n.startsWith("/")) n = n.substring(1);
-            ret += n;
-        }
-        return ret;
-    };
-
-    /**
      * [private]ディレクトリパスの末尾スラッシュを除去し、
      * グループ名から既知の拡張子 (.vgs / .vss) を除去して返す.
      *
@@ -573,7 +544,7 @@
         const conf = Config.getInstance();
         // dirPathが指定されていない場合
         // conf.dirPath + conf.vectorStorePathが対象.
-        dirPath = dirPath || _joinPath(conf.dirPath, conf.vectorStorePath);
+        dirPath = dirPath || util.joinPath(conf.dirPath, conf.vectorStorePath);
         if (dirPath.endsWith("/")) dirPath = dirPath.slice(0, -1);
         return dirPath;
     };
@@ -590,7 +561,7 @@
         const conf = Config.getInstance();
         // dirPathが指定されていない場合
         // conf.dirPath + conf.vectorStorePathが対象.
-        dirPath = dirPath || _joinPath(conf.dirPath, conf.vectorStorePath);
+        dirPath = dirPath || util.joinPath(conf.dirPath, conf.vectorStorePath);
         if (dirPath.endsWith("/")) dirPath = dirPath.slice(0, -1);
         // ディレクトリ作成をトライ.
         _mkdirs(dirPath);
@@ -603,16 +574,16 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * .vgs ファイルを読み込み、VectorChunk の配列を返す.
+     * [private].vgs ファイルを読み込み、VectorChunk の配列を返す.
      *
-     * ファイルを丸ごと readFileSync で読み込み、loadGroupFromBinary() に渡す.
+     * ファイルを丸ごと readFileSync で読み込み、_loadGroupFromBinary() に渡す.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {string}        groupName  グループ名
      * @param  {string}        dirPath    [*]ディレクトリパス
      * @return {VectorChunk[]} vectorGroupの中核VectorChunked群が返却されます.
      */
-    const loadGroup = function (groupName, dirPath) {
+    const _loadGroup = function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
         dirPath = _getVectorStoreDir(dirPath);
         const fileName = _buildFilePath(
@@ -620,11 +591,11 @@
             groupName,
             VECTOR_GROUP_FILE_EXTENSION,
         );
-        return loadGroupFromBinary(fs.readFileSync(fileName));
+        return _loadGroupFromBinary(fs.readFileSync(fileName));
     };
 
     /**
-     * バイナリ (Buffer) から VectorChunk の配列をデシリアライズする.
+     * [private]バイナリ (Buffer) から VectorChunk の配列をデシリアライズする.
      *
      * 【バイナリフォーマット (.vgs)】
      *   [4 bytes] シンボル "@vgs" (UTF-8)
@@ -642,7 +613,7 @@
      * @return {VectorChunk[]} vectorGroupの中核VectorChunked群が返却されます.
      * @throws {Error}         シンボルが一致しない場合
      */
-    const loadGroupFromBinary = function (binary) {
+    const _loadGroupFromBinary = function (binary) {
         const bd = new DecodeBinary(binary);
 
         // ── シンボル確認 ──
@@ -677,14 +648,14 @@
     };
 
     /**
-     * VectorChunk の配列を .vgs ファイルに保存する.
+     * [private]VectorChunk の配列を .vgs ファイルに保存する.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param {string}        groupName  グループ名
      * @param {VectorChunk[]} chunks     保存するチャンク配列
      * @param {string}        dirPath    [*]ディレクトリパス
      */
-    const saveGroup = function (groupName, chunks, dirPath) {
+    const _saveGroup = function (groupName, chunks, dirPath) {
         // ディレクトリ作成を行い、正しいディレクトリパスを返却.
         dirPath = _mkdirsToVectorStore(dirPath);
         const fileName = _buildFilePath(
@@ -692,11 +663,11 @@
             groupName,
             VECTOR_GROUP_FILE_EXTENSION,
         );
-        fs.writeFileSync(fileName, saveGroupToBinary(chunks));
+        fs.writeFileSync(fileName, _saveGroupToBinary(chunks));
     };
 
     /**
-     * VectorChunk の配列をバイナリ (Buffer) にシリアライズする.
+     * [private]VectorChunk の配列をバイナリ (Buffer) にシリアライズする.
      *
      * フォーマットは loadGroupFromBinary() の説明を参照.
      * 各フィールドを parts[] に積んでから _concatBytes() で一括結合する.
@@ -704,7 +675,7 @@
      * @param  {VectorChunk[]} chunks  シリアライズするチャンク配列
      * @return {Buffer} バイナリ情報が返却されます.
      */
-    const saveGroupToBinary = function (chunks) {
+    const _saveGroupToBinary = function (chunks) {
         const allLen = chunks.length;
         const parts = [];
 
@@ -739,14 +710,14 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * .vss ファイルを読み込み、VectorSummary を返す.
+     * [private].vss ファイルを読み込み、VectorSummary を返す.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {string}        groupName  グループ名
      * @param  {string}        dirPath    [*]ディレクトリパス
      * @return {VectorSummary} サマリーオブジェクトが返却されます.
      */
-    const loadSummary = function (groupName, dirPath) {
+    const _loadSummary = function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
         dirPath = _getVectorStoreDir(dirPath);
         const fileName = _buildFilePath(
@@ -754,11 +725,11 @@
             groupName,
             VECTOR_SUMMARY_FILE_EXTENSION,
         );
-        return loadSummaryFromBinary(fs.readFileSync(fileName));
+        return _loadSummaryFromBinary(fs.readFileSync(fileName));
     };
 
     /**
-     * バイナリ (Buffer) から VectorSummary をデシリアライズする.
+     * [private]バイナリ (Buffer) から VectorSummary をデシリアライズする.
      *
      * 【バイナリフォーマット (.vss)】
      *   [4 bytes] シンボル "@vss" (UTF-8)
@@ -776,7 +747,7 @@
      * @return {VectorSummary} サマリーオブジェクトが返却されます.
      * @throws {Error}         シンボルが一致しない場合
      */
-    const loadSummaryFromBinary = function (binary) {
+    const _loadSummaryFromBinary = function (binary) {
         const bd = new DecodeBinary(binary);
 
         // シンボル確認
@@ -802,14 +773,14 @@
     };
 
     /**
-     * VectorSummary を .vss ファイルに保存する.
+     * [private]VectorSummary を .vss ファイルに保存する.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param {string}        groupName  グループ名
      * @param {VectorSummary} summary    保存するサマリーオブジェクト
      * @param {string}        dirPath    [*]ディレクトリパス
      */
-    const saveSummary = function (groupName, summary, dirPath) {
+    const _saveSummary = function (groupName, summary, dirPath) {
         // ディレクトリ作成を行い、正しいディレクトリパスを返却.
         dirPath = _mkdirsToVectorStore(dirPath);
         const fileName = _buildFilePath(
@@ -817,18 +788,18 @@
             groupName,
             VECTOR_SUMMARY_FILE_EXTENSION,
         );
-        fs.writeFileSync(fileName, saveSummaryToBinary(summary));
+        fs.writeFileSync(fileName, _saveSummaryToBinary(summary));
     };
 
     /**
-     * VectorSummary をバイナリ (Buffer) にシリアライズする.
+     * [private]VectorSummary をバイナリ (Buffer) にシリアライズする.
      *
-     * フォーマットは loadSummaryFromBinary() の説明を参照.
+     * フォーマットは _loadSummaryFromBinary() の説明を参照.
      *
      * @param  {VectorSummary} summary  シリアライズするサマリーオブジェクト
      * @return {Buffer}
      */
-    const saveSummaryToBinary = function (summary) {
+    const _saveSummaryToBinary = function (summary) {
         const names = summary.getDocuments();
         const parts = [];
 
@@ -864,9 +835,9 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * パスとグループ名を正規化して VectorSummary をロードする.
+     * [private]パスとグループ名を正規化して VectorSummary をロードする.
      *
-     * 内部では _trimPathGroup() で正規化してから loadSummary() を呼ぶだけだが、
+     * 内部では _trimPathGroup() で正規化してから _loadSummary() を呼ぶだけだが、
      * 外部から利用しやすいようにラップしている.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
@@ -874,11 +845,11 @@
      * @param  {string}        dirPath    [*]ディレクトリパス
      * @return {VectorSummary}
      */
-    const loadVectorSummary = function (groupName, dirPath) {
+    const _loadVectorSummary = function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
         dirPath = _getVectorStoreDir(dirPath);
         const pg = _trimPathGroup(dirPath, groupName);
-        return loadSummary(pg.groupName, pg.path);
+        return _loadSummary(pg.groupName, pg.path);
     };
 
     /**
@@ -892,35 +863,38 @@
      * @param  {string}      dirPath    [*]ディレクトリパス
      * @return {VectorGroup}
      */
-    const loadVectorGroup = function (groupName, dirPath) {
+    const loadVectorGroup = async function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
         dirPath = _getVectorStoreDir(dirPath);
         const pg = _trimPathGroup(dirPath, groupName);
-        const vgFileName = pg.groupName + VECTOR_GROUP_FILE_EXTENSION;
-        // .vgs ファイルの更新時刻を取得 (変更検出のために保持する)
-        const fileTime = _getFileTime(pg.path + "/" + vgFileName);
-        const chunks = loadGroup(pg.groupName, pg.path);
-        const summary = loadVectorSummary(pg.groupName, pg.path);
-        // cache は省略 → VectorGroup コンストラクタ内で空配列として初期化される
-        return new VectorGroup(
-            pg.groupName,
-            pg.path,
-            vgFileName,
-            fileTime,
-            chunks,
-            summary,
-        );
-    };
+        groupName = pg.groupName;
 
-    /**
-     * 指定ファイルの最終更新時刻をミリ秒で返す.
-     * fs.statSync(filePath).mtimeMs のラッパー.
-     *
-     * @param  {string} filePath  フルファイルパス
-     * @return {number}           更新時刻 (ミリ秒)
-     */
-    const getFileTime = function (filePath) {
-        return _getFileTime(filePath);
+        const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
+
+        // VectorGroupファイル読み込み開始.
+        const lockUk = await sync.lock(
+            dirPath,
+            groupName,
+            Config.getInstance().lockTimeout,
+        );
+        try {
+            // .vgs ファイルの更新時刻を取得 (変更検出のために保持する)
+            const fileTime = _getFileTime(pg.path + "/" + vgFileName);
+            const chunks = _loadGroup(pg.groupName, pg.path);
+            const summary = _loadVectorSummary(pg.groupName, pg.path);
+            // cache は省略 → VectorGroup コンストラクタ内で空配列として初期化される
+            return new VectorGroup(
+                pg.groupName,
+                pg.path,
+                vgFileName,
+                fileTime,
+                chunks,
+                summary,
+            );
+        } finally {
+            // VectorGroupファイル読み込み終了.
+            sync.unlock(dirPath, groupName, lockUk);
+        }
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -928,7 +902,7 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * 長いテキストを chunkSize 文字以内の断片 (チャンク) に分割する.
+     * [private]長いテキストを chunkSize 文字以内の断片 (チャンク) に分割する.
      *
      * 【分割アルゴリズム】
      *   1. テキストを文末記号 (。!?！？ や改行) で文単位に分割する.
@@ -948,7 +922,7 @@
      * @param  {number}   overlapSize 次チャンクへ引き継ぐ末尾文字数
      * @return {string[]}             分割後のチャンク配列
      */
-    const stringToChunks = function (text, chunkSize, overlapSize) {
+    const _stringToChunks = function (text, chunkSize, overlapSize) {
         // 文末記号の後ろで分割 (後読みの正規表現)
         const sentences = text.split(/(?<=[。!?！？\n])/);
         const result = [];
@@ -1042,6 +1016,14 @@
         return null;
     };
 
+    // [private]グループ名からvectorGroup,vectorSummary のファイル名を作成.
+    const _getGroupNameToFileName = function (groupName) {
+        return {
+            vgFileName: groupName + VECTOR_GROUP_FILE_EXTENSION,
+            vsFileName: groupName + VECTOR_SUMMARY_FILE_EXTENSION,
+        };
+    };
+
     /**
      * 指定グループにテキストファイルの内容を追加・更新する.
      *
@@ -1052,7 +1034,7 @@
      *   3. 要約テキストだけ Conv で前処理して VectorSummary に登録する.
      *   4. 本文テキストも Conv で前処理する.
      *   5. 要約テキストを本文先頭に付加する.
-     *   6. stringToChunks() でチャンクに分割し LlamaCpp.getEmbedding() でベクトル化する.
+     *   6. _stringToChunks() でチャンクに分割し LlamaCpp.getEmbedding() でベクトル化する.
      *   7. 全チャンクを .vgs に、サマリーを .vss に保存する.
      *
      * @param {string} groupName    グループ名
@@ -1113,30 +1095,6 @@
             const pg = _trimPathGroup(dirPath, groupName);
             dirPath = pg.path;
             groupName = pg.groupName;
-
-            // グループ名からvectorGroup,vectorSummary ファイルが存在する場合.
-            const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
-            const vsFileName = groupName + VECTOR_SUMMARY_FILE_EXTENSION;
-            let list, summary;
-
-            // 既にファイルがvectorGroupファイルが存在する場合.
-            if (_isFile(dirPath, vgFileName)) {
-                // .vgs が既に存在する場合 → ロードして同名文書のチャンクを除外
-                if (!_isFile(dirPath, vsFileName)) {
-                    throw new Error(
-                        "Target VectorSummary file does not exist: " +
-                            vsFileName,
-                    );
-                }
-                const vg = loadVectorGroup(groupName, dirPath);
-                list = vg.getChunked().filter(function (ck) {
-                    return ck.docName !== textDocName;
-                });
-                summary = vg.getSummary();
-            } else {
-                list = [];
-                summary = new VectorSummary();
-            }
 
             // ── 要約テキスト生成 (前処理前の生テキストで推論) ──
             // ここでは主に以下の内容を生成する
@@ -1208,7 +1166,7 @@
             console.log("\n");
 
             // サマリーに文書を登録 (既存の場合は上書き)
-            summary.put(textDocName, new VSummaryValue(sumTxt, textUrl));
+            const summaryValue = new VSummaryValue(sumTxt, textUrl);
 
             // ── 本文テキストの前処理 ──
             // 要約生成後に本文を前処理する.
@@ -1223,22 +1181,23 @@
 
             // ── チャンク分割 + 埋め込みベクトル化 ──
             // embBaseUrl で指定した埋め込みモデルサーバーを使用する.
-            const chunkTextList = stringToChunks(text, chunkSize, overlap);
+            const chunkTextList = _stringToChunks(text, chunkSize, overlap);
             const chunkLen = chunkTextList.length;
             let i, chkTxt, emb;
             tm = Date.now();
 
             // topIndexが有効な場合は、対象のVectorChunkを作成.
+            const chunkList = [];
             if (topIndex.length > 0) {
                 // topIndexの長さがchunkLenを超える場合は、その長さに合わせる.
                 if (topIndex.length > chunkLen) {
                     topIndex = topIndex.substring(0, chunkLen);
                 }
                 emb = await LlamaCpp.getEmbedding(embBaseUrl, topIndex);
-                list.push(
+                chunkList.push(
                     new VectorChunk(
                         topIndex,
-                        list.length,
+                        chunkList.length,
                         chunkLen,
                         textDocName,
                         emb,
@@ -1251,10 +1210,10 @@
             for (i = 0; i < chunkLen; i++) {
                 chkTxt = chunkTextList[i];
                 emb = await LlamaCpp.getEmbedding(embBaseUrl, chkTxt);
-                list.push(
+                chunkList.push(
                     new VectorChunk(
                         chkTxt,
-                        list.length,
+                        chunkList.length,
                         chunkLen,
                         textDocName,
                         emb,
@@ -1269,9 +1228,63 @@
                     " msec",
             );
 
-            // 更新されたチャンク群とサマリーをそれぞれ保存
-            saveGroup(groupName, list, dirPath);
-            saveSummary(groupName, summary, dirPath);
+            // VectorGroupファイル更新開始.
+            const lockUk = await sync.lock(
+                dirPath,
+                groupName,
+                Config.getInstance().lockTimeout,
+            );
+            try {
+                let list, summary, len;
+
+                // グループ名から各種ファイル名を取得.
+                const { vsFileName, vgFileName } =
+                    _getGroupNameToFileName(groupName);
+
+                // 既にファイルがvectorGroupファイルが存在するか確認し
+                // ファイル構成に問題がないか確認する.
+                let isFileFlag = false;
+                if (_isFile(dirPath, vgFileName)) {
+                    // .vgs が既に存在する場合 → ロードして同名文書のチャンクを除外
+                    if (!_isFile(dirPath, vsFileName)) {
+                        throw new Error(
+                            "Target VectorSummary file does not exist: " +
+                                vsFileName,
+                        );
+                    }
+                    // ファイルは存在するので、アップデート追加する.
+                    isFileFlag = true;
+                }
+
+                // 既にVectorGroupファイルが存在する場合.
+                if (isFileFlag) {
+                    const vg = await loadVectorGroup(groupName, dirPath);
+                    list = vg.getChunked().filter(function (ck) {
+                        return ck.docName !== textDocName;
+                    });
+                    summary = vg.getSummary();
+                } else {
+                    // ファイルが存在しない場合.
+                    list = [];
+                    summary = new VectorSummary();
+                }
+
+                // 今回更新するVectorChunkリストを追加.
+                len = chunkList.length;
+                for (let i = 0; i < len; i++) {
+                    list.push(chunkList[i]);
+                }
+
+                // 今回更新するサマリーを定義.
+                summary.put(textDocName, summaryValue);
+
+                // 更新されたチャンク群とサマリーをそれぞれ保存
+                _saveGroup(groupName, list, dirPath);
+                _saveSummary(groupName, summary, dirPath);
+            } finally {
+                // VectorGroupファイル更新終了.
+                sync.unlock(dirPath, groupName, lockUk);
+            }
         } finally {
             // 利用終了.
             if (embObj != null) {
@@ -1299,7 +1312,7 @@
      * @return {boolean} true = 削除成功 / false = 削除対象が存在しなかった
      * @throws {Error}   片方のファイルしか存在しない場合 (データ不整合)
      */
-    const removeTextFileFromVectorGroup = function (
+    const removeTextFileFromVectorGroup = async function (
         groupName,
         textFileName,
         dirPath,
@@ -1311,58 +1324,72 @@
         dirPath = pg.path;
         groupName = pg.groupName;
 
-        const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
-        const vsFileName = groupName + VECTOR_SUMMARY_FILE_EXTENSION;
-        const vgFile = _isFile(dirPath, vgFileName);
-        const vsFile = _isFile(dirPath, vsFileName);
+        // VectorGroupファイル更新開始.
+        const lockUk = await sync.lock(
+            dirPath,
+            groupName,
+            Config.getInstance().lockTimeout,
+        );
+        try {
+            // グループ名から各種ファイル名を取得.
+            const { vsFileName, vgFileName } =
+                _getGroupNameToFileName(groupName);
+            const vgFile = _isFile(dirPath, vgFileName);
+            const vsFile = _isFile(dirPath, vsFileName);
 
-        // ファイル存在チェック
-        if (!vgFile || !vsFile) {
-            if (!vgFile && !vsFile) {
-                // 両方ない → 既に削除済みなので正常扱い
-                return false;
-            }
-            // 片方だけある → データ不整合
-            if (!vgFile)
+            // ファイル存在チェック
+            if (!vgFile || !vsFile) {
+                if (!vgFile && !vsFile) {
+                    // 両方ない → 既に削除済みなので正常扱い
+                    return false;
+                }
+                // 片方だけある → データ不整合
+                if (!vgFile)
+                    throw new Error(
+                        "VectorGroup file does not exist: " + groupName,
+                    );
                 throw new Error(
-                    "VectorGroup file does not exist: " + groupName,
+                    "VectorSummary file does not exist: " + groupName,
                 );
-            throw new Error("VectorSummary file does not exist: " + groupName);
-        }
+            }
 
-        const vg = loadVectorGroup(groupName, dirPath);
-        const summary = vg.getSummary();
-        let removeFlag = false; // 実際に削除対象が見つかったかのフラグ
+            const vg = await loadVectorGroup(groupName, dirPath);
+            const summary = vg.getSummary();
+            let removeFlag = false; // 実際に削除対象が見つかったかのフラグ
 
-        // 対象 docName のチャンクを除外
-        const list = vg.getChunked().filter(function (ck) {
-            if (ck.docName === textDocName) {
-                removeFlag = true;
+            // 対象 docName のチャンクを除外
+            const list = vg.getChunked().filter(function (ck) {
+                if (ck.docName === textDocName) {
+                    removeFlag = true;
+                    return false;
+                }
+                return true;
+            });
+
+            if (list.length === 0) {
+                // チャンクが全て削除対象だった → ファイルごと削除
+                const err1 = _removeFile(dirPath, vgFileName);
+                const err2 = _removeFile(dirPath, vsFileName);
+                // 削除失敗した場合はエラーをスロー (両方試してからチェックする)
+                if (err1) throw err1;
+                if (err2) throw err2;
+                return true;
+            }
+
+            if (!removeFlag) {
+                // 該当 docName のチャンクが1件も見つからなかった
                 return false;
             }
+
+            // 残ったチャンクで .vgs を更新し、サマリーからも該当エントリを削除して保存
+            _saveGroup(groupName, list, dirPath);
+            summary.getList().delete(textDocName);
+            _saveSummary(groupName, summary, dirPath);
             return true;
-        });
-
-        if (list.length === 0) {
-            // チャンクが全て削除対象だった → ファイルごと削除
-            const err1 = _removeFile(dirPath, vgFileName);
-            const err2 = _removeFile(dirPath, vsFileName);
-            // 削除失敗した場合はエラーをスロー (両方試してからチェックする)
-            if (err1) throw err1;
-            if (err2) throw err2;
-            return true;
+        } finally {
+            // VectorGroupファイル更新終了.
+            sync.unlock(dirPath, groupName, lockUk);
         }
-
-        if (!removeFlag) {
-            // 該当 docName のチャンクが1件も見つからなかった
-            return false;
-        }
-
-        // 残ったチャンクで .vgs を更新し、サマリーからも該当エントリを削除して保存
-        saveGroup(groupName, list, dirPath);
-        summary.getList().delete(textDocName);
-        saveSummary(groupName, summary, dirPath);
-        return true;
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -1373,14 +1400,14 @@
      * 自然言語クエリを受け取り、VectorGroup からスコア降順の VectorChunk[] を返す.
      *
      * 【処理の流れ】
-     *   1. クエリ文字列を stringToChunks() で分割する.
+     *   1. クエリ文字列を _stringToChunks() で分割する.
      *      (長い質問文もチャンク単位で検索することで検索漏れを防ぐ)
      *   2. 各クエリチャンクを LlamaCpp.getEmbedding() でベクトル化する.
      *   3. VectorGroup.searchEmbedding() でスコア上位 length 件を取得してリストに追加する.
      *   4. 全クエリチャンクの結果をまとめてスコア降順にソートして返す.
      *
      * 【使い方】
-     *   const vg = loadVectorGroup('docs', '/data');
+     *   const vg = await loadVectorGroup('docs', '/data');
      *   const results = await searchEmbedding(vg, 'RAGとは何ですか?',
      *       {length: 5, chunkSize: 500, overlapSize: 50, embBaseUrl: 'http://localhost:8080'});
      *     or
@@ -1415,7 +1442,7 @@
         }
         try {
             // クエリを文字数制限でチャンク分割する
-            const chunks = stringToChunks(message, chunkSize, overlap);
+            const chunks = _stringToChunks(message, chunkSize, overlap);
             const list = [];
             const ary = new Array(length);
             const len = chunks.length;
@@ -1599,7 +1626,7 @@
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      * @return {Promise<string>} 回答内容が返却されます.
      */
-    const searchRag = async function (vg, message, options) {
+    const searchVgRag = async function (vg, message, options) {
         // 組み込み検索.
         const resSearchEmb = await searchEmbedding(vg, message, options);
         // rag検索.
@@ -1685,21 +1712,10 @@
         VectorChunk,
         VectorGroup,
         VGFileInfo,
-        loadGroup,
-        loadGroupFromBinary,
-        saveGroup,
-        saveGroupToBinary,
-        loadSummary,
-        loadSummaryFromBinary,
-        saveSummary,
-        saveSummaryToBinary,
-        loadVectorSummary,
         loadVectorGroup,
-        getFileTime,
-        stringToChunks,
         searchEmbedding,
         searchInference,
-        searchRag,
+        searchVgRag,
         putTextFileToVectorGroup,
         removeTextFileFromVectorGroup,
         updateVectorGroupFileNames,

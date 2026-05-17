@@ -4,9 +4,31 @@
 (function () {
     "use strict";
 
-    // タイマー処理系ライブラリ(nodejs).
-    // 一旦参考.
-    //const timers = require("timers/promises");
+    /**
+     * [private]複数のパスを結合.
+     * @param {arguments} パスを複数設定します.
+     * @return {string} 結合されたパスが返却されます.
+     */
+    const joinPath = function () {
+        let args = Array.prototype.slice.call(arguments);
+        // １つの配列で設定.
+        if (args.length == 1 && Array.isArray(args[0])) {
+            args = args[0];
+        }
+        const len = args.length;
+        let n;
+        let ret = "";
+        for (let i = 0; i < len; i++) {
+            if (i != 0) {
+                ret += "/";
+            }
+            n = args[i];
+            if (n.endsWith("/")) n = n.slice(0, -1);
+            if (n.startsWith("/")) n = n.substring(1);
+            ret += n;
+        }
+        return ret;
+    };
 
     /**
      * sleep実行.
@@ -19,13 +41,12 @@
         return new Promise(function (resolve) {
             setTimeout(function () {
                 resolve();
-            }, msec)
-        })
-    }
-
+            }, msec);
+        });
+    };
 
     // ========================================================
     // モジュールエクスポート
     // ========================================================
-    module.exports = { sleep };
+    module.exports = { joinPath, sleep };
 })();
