@@ -111,7 +111,7 @@
      */
     const SUMMARY_REQUEST_FORMAT =
         "### 指示\n" +
-        "あなたは日本語のプロの編集者で文書の分類(タグ)・カテゴリ・要約(サマリー)を編集する専門家で、以下の「タイトルと参考文書」に従って回答してください。\n" +
+        "あなたは ** 日本語のプロの編集者 ** で文書の分類(タグ)・カテゴリ・要約(サマリー)を編集する専門家で、以下の「タイトルと参考文書」に従って回答してください。\n" +
         "####「タグ」は「カテゴリ」を更に固有定義化した「１つのジャンル」で表現してください。たとえば `プログラム` や `生活` や `裁判` や `アウトドア` のようにジャンル的なもので。\n" +
         "####「カテゴリ」は「サマリー」より簡潔に「1つのワード」「最大でも体言止めの短いフレーズで」「内容を最も象徴する『名詞』のみ」で表現してください。\n" +
         "####「サマリー」は参考文書内容として、RAGが二次利用できる形「文書内容の要点をまとめ、AIが理解しやすい内容」でまとめてください。\n\n\n" +
@@ -151,8 +151,10 @@
      *   {{chunkeds}}: ベクトル座標元のテキスト塊群.
      */
     const DEFAULT_RAG_REQUEST_CHUNK_FORMAT =
-        "- 【{{no}} 参考文書名:{{name}}】(参考文書URL: {{url}}, 類似度:{{score}})\n" +
-        "サマリー: \n{{summary}}\n\n該当箇所:\n{{chunkeds}}";
+        //"- 【{{no}} 参考文書名:{{name}}, 参考文書URL: {{url}}, 類似度:{{score}}】\n" +
+        //"  サマリー: \n{{summary}}\n\n該当箇所:\n{{chunkeds}}";
+        "- {{no}} 参考文書名: {{name}}, 参考文書URL: {{url}}, 類似度: {{score}}:\n" +
+        "  - サマリー内容: \n{{summary}}\n質問類似箇所: \n{{chunkeds}}";
 
     /**
      * RAG 問い合わせプロンプト全体のフォーマットのデフォルト値.
@@ -166,22 +168,27 @@
      */
     const DEFAULT_RAG_REQUEST_FORMAT =
         "### 指示\n" +
-        "あなたは日本語で回答する専門家です。以下の「参考文書」に基づいて「質問」に「回答形式」に従って回答してください。\n" +
-        "回答結果に対する参考文書の ** 採用数に応じて **「回答形式」を【完全に切り替えて】下さい。\n" +
-        "また ** 回答形式 ** は「パターン１」および「パターン２」のどちらかを必ず採用して下さい。\n" +
+        "あなたは ** 日本語で回答する専門家 ** です。以下の「参考文書」に基づいて、RAGとして「質問」に対する「回答形式」に従って回答してください。\n" +
+        "回答結果に対する参考文書の ** 採用数に応じて **「回答形式」を「完全に切り替えて」回答形式に応じて【回答】フォーマットに従って回答して下さい。\n" +
         "\n" +
         "### 回答形式\n" +
-        "####【パターン1: 回答作成に対して、参考文書を採用した件数が「存在する」場合】\n" +
-        "【回答】\n" +
-        "（回答本文）\n" +
-        "【参照文書一覧】\n" +
-        "1. [参考文書名1](参考文書URL1)\n" +
-        "2. [参考文書名2](参考文書URL2)\n" +
-        "※注意: 回答結果で採用された「参照文書」のみ「参照文書一覧」に表示してください。\n" +
+        "※回答共通: 【回答】より、AIの回答開始とする事を厳守します。\n" +
         "\n" +
-        "####【パターン2: 回答作成に対して、参考文書を採用した件数が「存在しない」場合】\n" +
+        "####【パターン1: 回答作成に対して、参考文書を採用した件数が ** 存在する **場合】\n" +
+        "※ AIが回答した内容は 回答本文 に記載してください。あと回答を作成する際に {文書名} に紐づくサマリーや質問類似箇所を引用していない内容は【参照文書一覧】に列挙しないことを厳守してください。\n" +
+        "\n" +
+        "【回答】\n" +
+        "回答本文\n" +
+        "【参照文書一覧】\n" +
+        "1. [{文書名}]({文書URL})\n" +
+        "2. [{文書名}]({文書URL})\n" +
+        "\n" +
+        "####【パターン2: 回答作成に対して、参考文書を採用した件数が ** 存在しない ** 場合】\n" +
+        "※この場合「情報はありませんでした。」のみで「参照文書一覧」という文字列やURLは、1文字も出力してはいけません。\n" +
+        "\n" +
+        "【回答】\n" +
         "情報はありませんでした。\n" +
-        "※注意: この条件の場合「参照文書一覧」という文字列やURLは、1文字も出力してはいけません。\n\n" +
+        "\n" +
         "### 参考文書\n" +
         "{{chunkMessages}}\n\n" +
         "### 質問\n" +
@@ -396,6 +403,16 @@
              */
             this.summaryRequestFormat = SUMMARY_REQUEST_FORMAT;
 
+            /**
+             * サマリー問い合わせ時の推論モードのOn/Offを設定します.
+             *  - true: 推論モードをONで実行します.
+             *  - false: 推論モードをOFFで実行します.
+             *  - null or undefoned: 実行先の設定に依存します(通常はON).
+             * ※ llama-server の実行モード `--reasoning off` の場合は、この定義を設定
+             *    しても必ず false 扱いになるので、通常は on を指定して下さい.
+             */
+            this.summaryReasoning = null;
+
             // ─── RAG リクエスト設定 ─────────────────────────────────
 
             /** RAG 推論時の Temperature */
@@ -420,6 +437,16 @@
              * プレースホルダー: {{chunkMessages}}, {{message}}
              */
             this.ragRequestFormat = DEFAULT_RAG_REQUEST_FORMAT;
+
+            /**
+             * rag問い合わせ時の推論モードのOn/Offを設定します.
+             *  - true: 推論モードをONで実行します.
+             *  - false: 推論モードをOFFで実行します.
+             *  - null or undefoned: 実行先の設定に依存します(通常はON).
+             * ※ llama-server の実行モード `--reasoning off` の場合は、この定義を設定
+             *    しても必ず false 扱いになるので、通常は on を指定して下さい.
+             */
+            this.ragReasoning = null;
 
             // ─── その他 ─────────────────────────────────
 
@@ -639,6 +666,19 @@
                     this.summaryRequestFormat,
                 ),
             );
+            this.summaryReasoning = _mapToGetValue(
+                json,
+                "summaryReasoning",
+                this.summaryReasoning,
+            );
+            if (
+                this.summaryReasoning == true ||
+                this.summaryReasoning == false
+            ) {
+                this.summaryReasoning = Conv.getBoolean(this.summaryReasoning);
+            } else {
+                this.summaryReasoning = null;
+            }
 
             // ─── RAG リクエスト設定 ─────────────────────────────────
             this.vectorSearchLength = Conv.getInt(
@@ -668,6 +708,16 @@
             this.ragRequestFormat = Conv.getString(
                 _mapToGetValue(json, "ragRequestFormat", this.ragRequestFormat),
             );
+            this.ragReasoning = _mapToGetValue(
+                json,
+                "ragReasoning",
+                this.ragReasoning,
+            );
+            if (this.ragReasoning == true || this.ragReasoning == false) {
+                this.ragReasoning = Conv.getBoolean(this.ragReasoning);
+            } else {
+                this.ragReasoning = null;
+            }
 
             // ─── その他 ─────────────────────────────────
             this.lockTimeout = Conv.getInt(

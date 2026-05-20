@@ -25,7 +25,7 @@
  *   removeTextFileFromVectorGroup       VectorGroup からテキストを削除
  *   searchEmbedding                     対象VectorGroupに対するベクトル座標検索.
  *   searchInference                     searchEmbedding 結果を用いて、RAG検索.
- *   searchVgRag                         searchEmbedding と searchInference を合わせた処理.
+ *   searchVg                            searchEmbedding と searchInference を合わせた処理.
  *   updateVectorGroupFileNames          ディレクトリ内の変更グループを検出
  *
  * 【依存モジュール】
@@ -33,7 +33,9 @@
  *   vectorSummary.js サマリー管理
  *   llamaCpp.js      llama.cpp サーバーへの埋め込み・推論 API アクセス
  *   conv.js          テキスト前処理 (マークダウン除去・不要文字除去など)
- *   config.js        サマリープロンプトフォーマットなどの設定管理
+ *   config.js        プロンプトフォーマットなどの設定管理
+ *   util.js          ユーティリティ系
+ *   sync.js          プロセス間ロック.
  *
  * 【使い方】
  *   const { loadVectorGroup, putTextFileToVectorGroup } = require('./VectorFile');
@@ -872,11 +874,7 @@
         const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
 
         // VectorGroupファイル読み込み開始.
-        const lockUk = await sync.lock(
-            dirPath,
-            groupName,
-            Config.getInstance().lockTimeout,
-        );
+        const lockUk = await sync.lock(groupName);
         try {
             // .vgs ファイルの更新時刻を取得 (変更検出のために保持する)
             const fileTime = _getFileTime(pg.path + "/" + vgFileName);
@@ -893,7 +891,7 @@
             );
         } finally {
             // VectorGroupファイル読み込み終了.
-            sync.unlock(dirPath, groupName, lockUk);
+            sync.unlock(groupName, lockUk);
         }
     };
 
@@ -1037,18 +1035,19 @@
      *   6. _stringToChunks() でチャンクに分割し LlamaCpp.getEmbedding() でベクトル化する.
      *   7. 全チャンクを .vgs に、サマリーを .vss に保存する.
      *
-     * @param {string} groupName    グループ名
-     * @param {string} textFileName 追加するファイル名 (拡張子込み, 例: 'readme.txt')
-     * @param {string} textUrl      元テキストの参照先 URL
-     * @param {string} text         テキスト本文
-     * @param {object} options      オプションパラメータを設定します.
-     *   - {string} embBaseUrl      埋め込みモデルサーバーの URL (例: 'http://localhost:8080')
-     *   - {string} ifBaseUrl       推論モデルサーバーの URL (例: 'http://localhost:8081')
-     *   - {string} dirPath         ディレクトリパス
-     *   - {number} chunkSize       1 チャンクの最大文字数
-     *   - {number} overlap         オーバーラップ文字数
-     *   - {number} temperature     サマリー推論の正確性を示す値を設定.
-     *   - {string} sumPrompt       サマリープロンプトを設定します.
+     * @param {string} groupName      グループ名
+     * @param {string} textFileName   追加するファイル名 (拡張子込み, 例: 'readme.txt')
+     * @param {string} textUrl        元テキストの参照先 URL
+     * @param {string} text           テキスト本文
+     * @param {object} options        オプションパラメータを設定します.
+     *   - {string} embBaseUrl        埋め込みモデルサーバーの URL (例: 'http://localhost:8080')
+     *   - {string} ifBaseUrl         推論モデルサーバーの URL (例: 'http://localhost:8081')
+     *   - {string} dirPath           ディレクトリパス
+     *   - {number} chunkSize         1チャンクの最大文字数
+     *   - {number} overlap           オーバーラップ文字数
+     *   - {number} temperature       サマリー推論の正確性を示す値を設定.
+     *   - {string} sumPrompt         サマリープロンプトを設定します.
+     *   - {boolean} summaryReasoning サマリー推論モードの ON OFF を設定します.
      * @return {Promise<void>}
      * @throws {Error} .vss が存在しない場合、または llama.cpp サーバーエラーの場合
      */
@@ -1071,6 +1070,11 @@
         let overlap = options.overlap || conf.overlapSize;
         let temperature = options.temperature || conf.summaryTemperature;
         let sumPrompt = options.sumPrompt || null;
+        let summaryReasoning =
+            options.summaryReasoning == true ||
+            options.summaryReasoning == false
+                ? options.summaryReasoning
+                : conf.summaryReasoning;
 
         // ディレクトリ作成を行い、正しいディレクトリパスを返却.
         dirPath = _mkdirsToVectorStore(dirPath);
@@ -1110,6 +1114,8 @@
                 ifBaseUrl,
                 conf.getSummaryRequest(sumPrompt, textDocName, text),
                 temperature,
+                null,
+                summaryReasoning,
             );
             // debug.
             console.log(
@@ -1229,11 +1235,7 @@
             );
 
             // VectorGroupファイル更新開始.
-            const lockUk = await sync.lock(
-                dirPath,
-                groupName,
-                Config.getInstance().lockTimeout,
-            );
+            const lockUk = await sync.lock(groupName);
             try {
                 let list, summary, len;
 
@@ -1283,7 +1285,7 @@
                 _saveSummary(groupName, summary, dirPath);
             } finally {
                 // VectorGroupファイル更新終了.
-                sync.unlock(dirPath, groupName, lockUk);
+                sync.unlock(groupName, lockUk);
             }
         } finally {
             // 利用終了.
@@ -1325,11 +1327,7 @@
         groupName = pg.groupName;
 
         // VectorGroupファイル更新開始.
-        const lockUk = await sync.lock(
-            dirPath,
-            groupName,
-            Config.getInstance().lockTimeout,
-        );
+        const lockUk = await sync.lock(groupName);
         try {
             // グループ名から各種ファイル名を取得.
             const { vsFileName, vgFileName } =
@@ -1388,7 +1386,7 @@
             return true;
         } finally {
             // VectorGroupファイル更新終了.
-            sync.unlock(dirPath, groupName, lockUk);
+            sync.unlock(groupName, lockUk);
         }
     };
 
@@ -1486,6 +1484,7 @@
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
      *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
+     *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
      * @return {Promise<string>} 回答内容が返却されます.
      */
     const searchInference = async function (
@@ -1504,6 +1503,10 @@
         let ragRequestChunkFormat = options.ragRequestChunkFormat || null;
         let requestFormat = options.requestFormat || null;
         let ifBaseUrl = options.ifBaseUrl || null;
+        let ragReasoning =
+            options.ragReasoning == true || options.ragReasoning == false
+                ? options.ragReasoning
+                : conf.ragReasoning;
 
         // ifBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let ifObj = null;
@@ -1593,6 +1596,8 @@
                 ifBaseUrl,
                 ragPrompt,
                 temperature,
+                null,
+                ragReasoning,
             );
             // AI回答の文字列に</think>が設定されている場合.
             // この文字以降のものだけを採用する.
@@ -1600,6 +1605,9 @@
             if (p != -1) {
                 ret = ret.substring(p + 8).trim();
             }
+            // <answer>と</answer>が存在する場合は削除.
+            ret = util.changeString(ret, "<answer>", "");
+            ret = util.changeString(ret, "</answer>", "");
             return ret;
         } finally {
             // 利用終了.
@@ -1624,9 +1632,10 @@
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
      *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
+     *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
      * @return {Promise<string>} 回答内容が返却されます.
      */
-    const searchVgRag = async function (vg, message, options) {
+    const search = async function (vg, message, options) {
         // 組み込み検索.
         const resSearchEmb = await searchEmbedding(vg, message, options);
         // rag検索.
@@ -1715,7 +1724,7 @@
         loadVectorGroup,
         searchEmbedding,
         searchInference,
-        searchVgRag,
+        search,
         putTextFileToVectorGroup,
         removeTextFileFromVectorGroup,
         updateVectorGroupFileNames,

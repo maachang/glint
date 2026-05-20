@@ -230,6 +230,9 @@
      *                                     デフォルト値を使用.
      * @param  {number}  [maxTokens=-1]    最大生成トークン数. 0 以下 or undefined の
      *                                     場合は指定なし.
+     * @param  {boolean} [reasoning=null]  推論ありで実行の場合は true, なしの場合は false
+     *                                     また llama-server の起動オプションが `--reasoning off`
+     *                                     の場合は true にしても変更されないので注意が必要です.
      * @return {Promise<Object>}      /v1/chat/completions のレスポンス JSON
      * @throws {Error}   サーバーエラーの場合
      */
@@ -238,6 +241,7 @@
         prompt,
         temperature,
         maxTokens,
+        reasoning,
     ) {
         var body = {
             // messages は OpenAI 互換フォーマット: [{ role, content }] の配列
@@ -256,6 +260,12 @@
         // (省略すると llama.cpp が自動で決定する)
         if (maxTokens !== undefined && maxTokens > 0) {
             body.max_tokens = maxTokens;
+        }
+        // 推論条件が設定されている場合.
+        if (reasoning == true || reasoning == false) {
+            body["chat_template_kwargs"] = {
+                enable_thinking: reasoning == true,
+            };
         }
         return _fetch(baseUrl, "v1/chat/completions", body);
     };
@@ -288,6 +298,9 @@
      * @param  {string}  prompt       質問テキスト
      * @param  {number}  [temperature]  Temperature 値 (省略時はデフォルト)
      * @param  {number}  [maxTokens]    最大生成トークン数 (省略時は指定なし)
+     * @param  {boolean} [reasoning=null]  推論ありで実行の場合は true, なしの場合は false
+     *                                     また llama-server の起動オプションが `--reasoning off`
+     *                                     の場合は true にしても変更されないので注意が必要です.
      * @return {Promise<string>}      LLM が生成した回答テキスト
      * @throws {Error}   サーバーエラーの場合
      */
@@ -296,8 +309,15 @@
         prompt,
         temperature,
         maxTokens,
+        reasoning,
     ) {
-        var res = await getInference(baseUrl, prompt, temperature, maxTokens);
+        var res = await getInference(
+            baseUrl,
+            prompt,
+            temperature,
+            maxTokens,
+            reasoning,
+        );
         return getResultInferenceToText(res);
     };
 

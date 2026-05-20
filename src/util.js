@@ -4,6 +4,12 @@
 (function () {
     "use strict";
 
+    // 文字列を置き換える.
+    const changeString = function (base, src, dest) {
+        base = String(base);
+        return base.split(src).join(dest);
+    };
+
     /**
      * [private]複数のパスを結合.
      * @param {arguments} パスを複数設定します.
@@ -48,5 +54,5 @@
     // ========================================================
     // モジュールエクスポート
     // ========================================================
-    module.exports = { joinPath, sleep };
+    module.exports = { changeString, joinPath, sleep };
 })();

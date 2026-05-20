@@ -5,6 +5,7 @@
 (function () {
     "use strict";
     const fs = require("fs");
+    const conf = require("./config.js");
     const util = require("./util.js");
 
     // [lock]randomUUID作成用.
@@ -44,13 +45,15 @@
 
     /**
      * ロック処理を実施.
-     * @param {string} dirName ロックファイル出力先のディレクトリパスを設定します.
+     * [*]指定しない場合はコンフィグ値がセットされます.
      * @param {string} name ロック名を設定します.
-     * @param {number} timeout タイムアウト値を設定します(省略時は -1=無限待ち)
+     * @param {string} dirName [*]ロックファイル出力先のディレクトリパスを設定します.
+     * @param {number} timeout [*]タイムアウト値を設定します(省略時は -1=無限待ち)
      * @returns {Promise<string|null>} ロックファイル設定内容のユニーク値が返却されます.
      */
-    const lock = async function (dirName, name, timeout) {
-        timeout = timeout || -1;
+    const lock = async function (name, dirName, timeout) {
+        dirName = dirName || conf.getInstance().dirPath;
+        timeout = timeout || conf.getInstance().fetchTimeout;
         // ロックファイル名を作成.
         const lockName = "." + name + ".lock";
         const lockFilePath = util.joinPath(dirName, lockName);
@@ -129,11 +132,13 @@
 
     /**
      * アンロック処理を実施.
-     * @param {string} dirName ロックファイル出力先のディレクトリパスを設定します.
+     * [*]指定しない場合はコンフィグ値がセットされます.
      * @param {string} name ロック名を設定します.
      * @param {string} uk lock処理結果の返却値を設定します.
+     * @param {string} dirName [*]ロックファイル出力先のディレクトリパスを設定します.
      */
-    const unlock = function (dirName, name, uk) {
+    const unlock = function (name, uk, dirName) {
+        dirName = dirName || conf.getInstance().dirPath;
         // ロックファイル名を作成.
         const lockName = "." + name + ".lock";
         const lockFilePath = util.joinPath(dirName, lockName);
