@@ -129,31 +129,6 @@
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // ヘルスチェック
-    // ═══════════════════════════════════════════════════════════════
-
-    /**
-     * llama.cpp サーバーの生存確認を行う.
-     *
-     * GET /health にアクセスし、接続できれば true、
-     * 接続できない (タイムアウト・接続拒否など) 場合は false を返す.
-     * エラーはスローせず false として吸収する.
-     *
-     * @param  {string}           baseUrl  ベース URL (例: 'http://localhost:8080')
-     * @return {Promise<boolean>}          true = サーバーが利用可能
-     */
-    const health = async function (baseUrl) {
-        if (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
-        try {
-            await fetch(baseUrl + "/health");
-            return true;
-        } catch (e) {
-            // 接続できない場合は false を返す (エラーはスローしない)
-            return false;
-        }
-    };
-
-    // ═══════════════════════════════════════════════════════════════
     // 埋め込みベクトル取得
     // ═══════════════════════════════════════════════════════════════
 
@@ -325,7 +300,6 @@
     // exports
     // ═══════════════════════════════════════════════════════════════
     module.exports = {
-        health,
         getEmbedding,
         getInference,
         getResultInferenceToText,

@@ -151,8 +151,6 @@
      *   {{chunkeds}}: ベクトル座標元のテキスト塊群.
      */
     const DEFAULT_RAG_REQUEST_CHUNK_FORMAT =
-        //"- 【{{no}} 参考文書名:{{name}}, 参考文書URL: {{url}}, 類似度:{{score}}】\n" +
-        //"  サマリー: \n{{summary}}\n\n該当箇所:\n{{chunkeds}}";
         "- {{no}} 参考文書名: {{name}}, 参考文書URL: {{url}}, 類似度: {{score}}:\n" +
         "  - サマリー内容: \n{{summary}}\n質問類似箇所: \n{{chunkeds}}";
 
@@ -175,13 +173,13 @@
         "※回答共通: 【回答】より、AIの回答開始とする事を厳守します。\n" +
         "\n" +
         "####【パターン1: 回答作成に対して、参考文書を採用した件数が ** 存在する **場合】\n" +
-        "※ AIが回答した内容は 回答本文 に記載してください。あと回答を作成する際に {文書名} に紐づくサマリーや質問類似箇所を引用していない内容は【参照文書一覧】に列挙しないことを厳守してください。\n" +
+        "※ AIが回答した内容は 回答本文 に記載してください。あと回答を作成する際に 文書名 に紐づくサマリーや質問類似箇所を引用していない内容は【参照文書一覧】に列挙しないことを厳守してください。\n" +
         "\n" +
         "【回答】\n" +
         "回答本文\n" +
         "【参照文書一覧】\n" +
-        "1. [{文書名}]({文書URL})\n" +
-        "2. [{文書名}]({文書URL})\n" +
+        "1. [文書名](文書URL)\n" +
+        "2. [文書名](文書URL)\n" +
         "\n" +
         "####【パターン2: 回答作成に対して、参考文書を採用した件数が ** 存在しない ** 場合】\n" +
         "※この場合「情報はありませんでした。」のみで「参照文書一覧」という文字列やURLは、1文字も出力してはいけません。\n" +
@@ -196,6 +194,10 @@
         "--- \n" +
         "それでは上記の【回答形式】のルールを厳守で日本語で回答を開始してください。\n" +
         "回答:";
+
+    // Rag検索結果にこの文字列が存在しない場合に「参考文書情報」を
+    // 出力するための確認するワード.
+    const DEFAULT_LAST_REFERENCE_SIMBOL = "参照文書一覧";
 
     /** デフォルトの設定ファイルディレクトリパス */
     const DEFAULT_CONFIG_PATH = "./";
@@ -224,12 +226,12 @@
         }
 
         // 利用を開始する.
-        startUse() {
+        startConnect() {
             this.useCount++;
         }
 
         // 利用終了.
-        endUse() {
+        endConnect() {
             this.useCount--;
         }
     }
@@ -331,7 +333,7 @@
             }
         }
         // 一番アクセス数の少ないサーバを返却.
-        ret.startUse();
+        ret.startConnect();
         return ret;
     };
 
@@ -437,6 +439,12 @@
              * プレースホルダー: {{chunkMessages}}, {{message}}
              */
             this.ragRequestFormat = DEFAULT_RAG_REQUEST_FORMAT;
+
+            /**
+             * Rag検索結果にこの文字列が存在しない場合に「参考文書情報」を
+             * 出力するための確認するワード.
+             */
+            this.lastReferenceSmb = DEFAULT_LAST_REFERENCE_SIMBOL;
 
             /**
              * rag問い合わせ時の推論モードのOn/Offを設定します.
@@ -718,6 +726,11 @@
             } else {
                 this.ragReasoning = null;
             }
+            this.lastReferenceSmb = _mapToGetValue(
+                json,
+                "lastReferenceSmb",
+                this.lastReferenceSmb,
+            );
 
             // ─── その他 ─────────────────────────────────
             this.lockTimeout = Conv.getInt(

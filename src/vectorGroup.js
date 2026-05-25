@@ -109,6 +109,7 @@
                     : embedding
                       ? new Float32Array(embedding)
                       : new Float32Array(0);
+            this.summary = null;
             /**
              * 検索スコア (コサイン類似度).
              * searchEmbedding() 実行時に計算・セットされる.
@@ -134,6 +135,7 @@
             out.indexNo = this.indexNo;
             out.allLength = this.allLength;
             out.score = this.score;
+            out.summary = this.summary;
             return out;
         }
     }
@@ -295,6 +297,8 @@
                 docs[i].copy(tmp);
                 // コサイン類似度を計算してスコアとして保持
                 tmp.score = _score(queryEmb, tmp.embedding);
+                // サマリーをキャッシュのVectorChunkセット.
+                tmp.summary = this._summary;
                 target[i] = tmp;
             }
 
@@ -1290,10 +1294,10 @@
         } finally {
             // 利用終了.
             if (embObj != null) {
-                embObj.endUse();
+                embObj.endConnect();
             }
             if (ifObj != null) {
-                ifObj.endUse();
+                ifObj.endConnect();
             }
         }
     };
@@ -1467,15 +1471,93 @@
         } finally {
             // 利用終了.
             if (embObj != null) {
-                embObj.endUse();
+                embObj.endConnect();
             }
         }
     };
 
     /**
+     * 複数の searchEmbedding結果を統合する.
+     * @param {arguments} 複数の searchEmbedding結果(VectorChunk[])を設定します.
+     * @returns {VectorChunk[]} 統合され得点の高い準にソートされた結果が返却されます.
+     */
+    const resultEmbeddingToTotalization = function () {
+        let args = Array.prototype.slice.call(arguments);
+        // １つの配列で設定.
+        if (args.length == 1 && Array.isArray(args[0])) {
+            args = args[0];
+        }
+        // すべての内容を統合する.
+        const ret = {};
+        const len = args.length;
+        let i, j, lenJ, em;
+        for (i = 0; i < len; i++) {
+            em = args[i];
+            lenJ = em.length;
+            for (j = 0; j < lenJ; j++) {
+                ret[ret.length] = em[j];
+            }
+        }
+        // 全クエリチャンクの結果をまとめてスコア降順にソート
+        // (降順取り出し相当)
+        ret.sort(function (a, b) {
+            return b.score - a.score;
+        });
+        return ret;
+    };
+
+    /**
+     * [private]条件が一致する場合に参考文書を付与した形の返却をする.
+     * @param {*} resTxt 元の検索結果文書.
+     * @param {*} lastReferenceSmb 参考文書一覧列挙のタイトルシンボル名を設定します.
+     * @param {*} targetList
+     * @param {*} maxLen
+     * @returns {string} 検索結果内容が返却されます.
+     */
+    const _setLastReferenceSimbol = function (
+        resTxt,
+        lastReferenceSmb,
+        targetList,
+        maxLen,
+    ) {
+        // lastReferenceSmb が文字列でない、０文字列の場合.
+        if (typeof lastReferenceSmb != "string" || lastReferenceSmb <= 0) {
+            // 設定対象が存在しないので付与しない.
+            return resTxt;
+        }
+        // 最後から「lastReferenceSmb」の文字列を検索/
+        const p = resTxt.lastIndexOf(lastReferenceSmb);
+        // 見つかった場合、そして見つかった内容が 全体文字数の半分より後ろの場合.
+        if (p != -1 && p > resTxt.length >> 1) {
+            // 存在すると満たして、付与しない.
+            return resTxt;
+        }
+        resTxt = resTxt + "\n\n---\n\n【" + lastReferenceSmb + "】\n";
+        // 参考文書をセット.
+        let vc, txt;
+        txt = "";
+        for (let i = 0; i < maxLen; i++) {
+            vc = targetList[i][0];
+            //  [{文書名}]({文書URL}) で記載.
+            txt +=
+                "" +
+                (i + 1) +
+                ". [" +
+                vc.docName +
+                "](" +
+                vc.summary.getUrl(vc.docName) +
+                ")\n";
+        }
+        txt +=
+            " ※ 上の【" +
+            lastReferenceSmb +
+            "】内容は検索候補一覧で、検索結果に一致してない内容も含まれています.\n";
+        return resTxt + txt;
+    };
+
+    /**
      * searchEmbedding での検索結果を設定して、Rag検索を実行.
      *
-     * @param {VectorGroup} vg 検索対象の VectorGroup を設定します.
      * @param {VectorChunk[]} resSearchEmb [searchEmbedding] の処理結果を設定します.
      * @param {string} message 自然言語のクエリ文字列
      * @param {object} options オプションパラメータを設定します.
@@ -1485,14 +1567,13 @@
      *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
+     *   - {string} lastReferenceSmb 対象内容の文字が設定された場合、デフォルト値だと
+     *                                ・参照文書一覧
+     *                               が「文書最後に参考文書一覧」として列挙されるがこれが行われて
+     *                               いない場合に、検索候補の結果を代替えで表示する場合にセットする.
      * @return {Promise<string>} 回答内容が返却されます.
      */
-    const searchInference = async function (
-        vg,
-        resSearchEmb,
-        message,
-        options,
-    ) {
+    const searchInference = async function (resSearchEmb, message, options) {
         // options が設定せれていない場合.
         options = options || {};
 
@@ -1507,6 +1588,8 @@
             options.ragReasoning == true || options.ragReasoning == false
                 ? options.ragReasoning
                 : conf.ragReasoning;
+        let lastReferenceSmb =
+            options.lastReferenceSmb || conf.lastReferenceSmb;
 
         // ifBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let ifObj = null;
@@ -1543,9 +1626,6 @@
             const targetLen = targetList.length;
             const maxLen = targetLen >= topLength ? topLength : targetLen;
 
-            // 対象サマリーを取得.
-            const summary = vg.getSummary();
-
             // RAG検索用のヒントとなるchunked文字を生成.
             let chunkString = "";
             let vc, j, lenJ, n, targetChunkeds;
@@ -1579,9 +1659,9 @@
                     ragRequestChunkFormat,
                     i + 1,
                     vc.docName,
-                    summary.getUrl(vc.docName),
+                    vc.summary.getUrl(vc.docName),
                     vc.score,
-                    summary.getText(vc.docName),
+                    vc.summary.getText(vc.docName),
                     targetChunkeds,
                 );
             }
@@ -1608,11 +1688,19 @@
             // <answer>と</answer>が存在する場合は削除.
             ret = util.changeString(ret, "<answer>", "");
             ret = util.changeString(ret, "</answer>", "");
-            return ret;
+
+            // lastReferenceSmb が文字列で存在する場合、
+            // 参考文書がRAG回答に存在しない場合に付与する.
+            return _setLastReferenceSimbol(
+                ret,
+                lastReferenceSmb,
+                targetList,
+                maxLen,
+            );
         } finally {
             // 利用終了.
             if (ifObj != null) {
-                ifObj.endUse();
+                ifObj.endConnect();
             }
         }
     };
@@ -1633,13 +1721,17 @@
      *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
+     *   - {string} lastReferenceSmb 対象内容の文字が設定された場合、デフォルト値だと
+     *                                ・参照文書一覧
+     *                               が「文書最後に参考文書一覧」として列挙されるがこれが行われて
+     *                               いない場合に、検索候補の結果を代替えで表示する場合にセットする.
      * @return {Promise<string>} 回答内容が返却されます.
      */
     const search = async function (vg, message, options) {
         // 組み込み検索.
         const resSearchEmb = await searchEmbedding(vg, message, options);
         // rag検索.
-        return await searchInference(vg, resSearchEmb, message, options);
+        return await searchInference(resSearchEmb, message, options);
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -1722,11 +1814,12 @@
         VectorGroup,
         VGFileInfo,
         loadVectorGroup,
-        searchEmbedding,
-        searchInference,
-        search,
         putTextFileToVectorGroup,
         removeTextFileFromVectorGroup,
+        searchEmbedding,
+        resultEmbeddingToTotalization,
+        searchInference,
+        search,
         updateVectorGroupFileNames,
     };
 })();
