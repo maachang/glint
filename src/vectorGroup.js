@@ -1514,7 +1514,7 @@
      * @param {*} maxLen
      * @returns {string} 検索結果内容が返却されます.
      */
-    const _setLastReferenceSimbol = function (
+    const _setLastReferenceSymbol = function (
         resTxt,
         lastReferenceSmb,
         targetList,
@@ -1528,7 +1528,9 @@
         // 最後から「lastReferenceSmb」の文字列を検索/
         const p = resTxt.lastIndexOf(lastReferenceSmb);
         // 見つかった場合、そして見つかった内容が 全体文字数の半分より後ろの場合.
-        if (p != -1 && p > resTxt.length >> 1) {
+        //if (p != -1 && p > resTxt.length >> 1) {
+        // 見つかった場合.
+        if (p != -1) {
             // 存在すると満たして、付与しない.
             return resTxt;
         }
@@ -1691,7 +1693,7 @@
 
             // lastReferenceSmb が文字列で存在する場合、
             // 参考文書がRAG回答に存在しない場合に付与する.
-            return _setLastReferenceSimbol(
+            return _setLastReferenceSymbol(
                 ret,
                 lastReferenceSmb,
                 targetList,

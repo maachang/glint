@@ -7,13 +7,13 @@
     "use strict";
 
     /**
-     * １つのOpenAIのAPI準拠したサーバの接続管理情報.
+     * １つのllama.cppサーバ接続管理情報.
      *  - {string} host           (key)接続先ホスト名 + ポート番号.
      *  - {number} connectCount   OpenAIのAPI準拠したサーバ に接続する接続数(32).
      *  - {number} lastTime       最終接続時間(未接続: -1)(64).
      *  - {number} firstErrorTime 接続エラーが発生した最初の時間(未エラー: -1)(64)
      */
-    class OpenAIApiStatus {
+    class LlamaCppStatus {
         /**
          * コンストラクタ.
          * @param {string} host 接続先ホスト名 + ポート番号を設定.
@@ -26,17 +26,21 @@
         }
         /**
          * 接続開始.
+         * @returns {boolean} trueが返却されます.
          */
         startConnect() {
             this.connectCount++;
             this.lastTime = Date.now();
+            return true;
         }
         /**
          * 接続終了.
+         * @returns {boolean} trueが返却されます.
          */
         endConnect() {
             this.connectCount--;
             this.lastTime = Date.now();
+            return true;
         }
         /**
          * 接続エラー時に呼び出し.

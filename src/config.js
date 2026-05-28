@@ -197,7 +197,7 @@
 
     // Rag検索結果にこの文字列が存在しない場合に「参考文書情報」を
     // 出力するための確認するワード.
-    const DEFAULT_LAST_REFERENCE_SIMBOL = "参照文書一覧";
+    const DEFAULT_LAST_REFERENCE_SYMBOL = "参照文書一覧";
 
     /** デフォルトの設定ファイルディレクトリパス */
     const DEFAULT_CONFIG_PATH = "./";
@@ -444,7 +444,7 @@
              * Rag検索結果にこの文字列が存在しない場合に「参考文書情報」を
              * 出力するための確認するワード.
              */
-            this.lastReferenceSmb = DEFAULT_LAST_REFERENCE_SIMBOL;
+            this.lastReferenceSmb = DEFAULT_LAST_REFERENCE_SYMBOL;
 
             /**
              * rag問い合わせ時の推論モードのOn/Offを設定します.
