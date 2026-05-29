@@ -4,6 +4,21 @@
 (function () {
     "use strict";
 
+    // デバッグモードセット
+    let _DEBUG = false;
+    const debugMode = function (mode) {
+        _DEBUG = mode == true;
+    };
+
+    // デバッグ出力.
+    const debugOut = function () {
+        if (!_DEBUG) {
+            return;
+        }
+        let args = Array.prototype.slice.call(arguments);
+        console.debug.apply(console, args);
+    };
+
     // 文字列を置き換える.
     const changeString = function (base, src, dest) {
         base = String(base);
@@ -54,5 +69,5 @@
     // ========================================================
     // モジュールエクスポート
     // ========================================================
-    module.exports = { changeString, joinPath, sleep };
+    module.exports = { debugMode, debugOut, changeString, joinPath, sleep };
 })();

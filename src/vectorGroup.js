@@ -670,6 +670,7 @@
             VECTOR_GROUP_FILE_EXTENSION,
         );
         fs.writeFileSync(fileName, _saveGroupToBinary(chunks));
+        util.debugOut("_saveGroup-fileName: " + fileName);
     };
 
     /**
@@ -795,6 +796,7 @@
             VECTOR_SUMMARY_FILE_EXTENSION,
         );
         fs.writeFileSync(fileName, _saveSummaryToBinary(summary));
+        util.debugOut("_saveSummary-fileName: " + fileName);
     };
 
     /**
@@ -1113,7 +1115,7 @@
 
             let tm = Date.now();
             // debug.
-            console.log("start.getInferenceMessage(" + textFileName + ")");
+            util.debugOut("start.getInferenceMessage(" + textFileName + ")");
             let sumTxt = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
                 conf.getSummaryRequest(sumPrompt, textDocName, text),
@@ -1122,7 +1124,7 @@
                 summaryReasoning,
             );
             // debug.
-            console.log(
+            util.debugOut(
                 "end.getInferenceMessage: " + (Date.now() - tm) + " msec",
             );
 
@@ -1171,9 +1173,9 @@
             }
 
             // debug.
-            console.log("サマリー結果: \n" + sumTxt);
-            console.log("topIndex: " + topIndex);
-            console.log("\n");
+            util.debugOut("サマリー結果: \n" + sumTxt);
+            util.debugOut("topIndex: " + topIndex);
+            util.debugOut("\n");
 
             // サマリーに文書を登録 (既存の場合は上書き)
             const summaryValue = new VSummaryValue(sumTxt, textUrl);
@@ -1193,22 +1195,24 @@
             // embBaseUrl で指定した埋め込みモデルサーバーを使用する.
             const chunkTextList = _stringToChunks(text, chunkSize, overlap);
             const chunkLen = chunkTextList.length;
-            let i, chkTxt, emb;
+            let i, chkTxt, emb, chunkAllLen;
             tm = Date.now();
 
             // topIndexが有効な場合は、対象のVectorChunkを作成.
             const chunkList = [];
+            chunkAllLen = chunkLen;
             if (topIndex.length > 0) {
                 // topIndexの長さがchunkLenを超える場合は、その長さに合わせる.
                 if (topIndex.length > chunkLen) {
                     topIndex = topIndex.substring(0, chunkLen);
                 }
+                chunkAllLen++;
                 emb = await LlamaCpp.getEmbedding(embBaseUrl, topIndex);
                 chunkList.push(
                     new VectorChunk(
                         topIndex,
                         chunkList.length,
-                        chunkLen,
+                        chunkAllLen,
                         textDocName,
                         emb,
                     ),
@@ -1216,7 +1220,7 @@
             }
 
             // 組み込みインデックスでVectorChunkを作成.
-            console.log("start.getEmbedding(" + chunkLen + ")");
+            util.debugOut("start.getEmbedding(" + chunkLen + ")");
             for (i = 0; i < chunkLen; i++) {
                 chkTxt = chunkTextList[i];
                 emb = await LlamaCpp.getEmbedding(embBaseUrl, chkTxt);
@@ -1224,13 +1228,14 @@
                     new VectorChunk(
                         chkTxt,
                         chunkList.length,
-                        chunkLen,
+                        chunkAllLen,
                         textDocName,
                         emb,
                     ),
                 );
+                //util.debugOut("[" + i + "]");
             }
-            console.log(
+            util.debugOut(
                 "end.getEmbedding(" +
                     chunkLen +
                     "): " +
@@ -1287,10 +1292,12 @@
                 // 更新されたチャンク群とサマリーをそれぞれ保存
                 _saveGroup(groupName, list, dirPath);
                 _saveSummary(groupName, summary, dirPath);
+                util.debugOut("ファイル出力完了");
             } finally {
                 // VectorGroupファイル更新終了.
                 sync.unlock(groupName, lockUk);
             }
+            util.debugOut("ファイル出力完了[END]");
         } finally {
             // 利用終了.
             if (embObj != null) {
