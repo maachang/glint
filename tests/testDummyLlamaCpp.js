@@ -12,6 +12,7 @@ const assert = require("assert");
 
 const Config = require("../src/config.js");
 const LlamaCpp = require("../src/llamaCpp.js");
+const Prompt = require("../src/prompt.js");
 
 // テスト結果集計.
 let okCount = 0;
@@ -131,10 +132,10 @@ const main = async function () {
         );
 
         console.log(
-            "[4] Config.getSummaryRequest() の system/user がそのまま推論に渡る確認",
+            "[4] Prompt.getSummaryRequest() の system/user がそのまま推論に渡る確認",
         );
         const conf = Config.getInstance();
-        const sumPrompt = conf.getSummaryRequest("doc1", "本文サンプル");
+        const sumPrompt = Prompt.getSummaryRequest("doc1", "本文サンプル");
         const msg3 = await LlamaCpp.getInferenceMessage(
             baseUrl,
             sumPrompt.system,
@@ -152,7 +153,7 @@ const main = async function () {
         );
 
         console.log(
-            "[5] Config.getRagRequest() の system/user がそのまま推論に渡る確認",
+            "[5] Prompt.getRagRequest() の system/user がそのまま推論に渡る確認",
         );
         const chunk = conf.getRagRequestChunk(
             null,
@@ -163,7 +164,7 @@ const main = async function () {
             "サマリー内容",
             "類似箇所テキスト",
         );
-        const ragPrompt = conf.getRagRequest(chunk, "質問文サンプル");
+        const ragPrompt = Prompt.getRagRequest(chunk, "質問文サンプル");
         const msg4 = await LlamaCpp.getInferenceMessage(
             baseUrl,
             ragPrompt.system,

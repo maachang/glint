@@ -7,8 +7,11 @@
  *   - ファイルパス        : vectorStore・参照文書の格納先
  *   - llama.cpp 接続先   : 埋め込み・推論それぞれのサーバー URL リスト
  *   - チャンク設定        : チャンクサイズ・オーバーラップサイズ
- *   - サマリー設定        : 要約生成の Temperature (プロンプト本文は prompt.js に固定定義)
- *   - RAG リクエスト設定  : 検索件数・チャンク数・チャンクフォーマット (プロンプト本文は prompt.js に固定定義)
+ *   - サマリー設定        : 要約生成の Temperature (プロンプト本文は prompt.js に定義)
+ *   - RAG リクエスト設定  : 検索件数・チャンク数・チャンクフォーマット (プロンプト本文は prompt.js に定義)
+ *
+ * ※ system/user プロンプトの生成 (getSummaryRequest / getRagRequest) は
+ *    prompt.js 側に移動済み. config.js は Temperature 等のパラメータのみ管理する.
  *
  * 【使い方】
  *   const Config = require('./config');
@@ -21,19 +24,14 @@
  *   console.log(cfg.vectorStorePath);
  *   console.log(cfg.inferenceList[0].baseUrl);
  *
- *   // サマリー問い合わせプロンプト (system/user) を生成
- *   const { system, user } = cfg.getSummaryRequest('doc1', '要約したいテキスト');
- *
- *   // RAG 問い合わせプロンプト (system/user) を生成
+ *   // RAG プロンプト内の 1 チャンク分メッセージを生成 (prompt.js の getRagRequest() に渡す)
  *   const chunk = cfg.getRagRequestChunk(1, 'doc1', 'https://...', 0.98, 'サマリー文', '類似箇所');
- *   const { system, user } = cfg.getRagRequest(chunk, 'ユーザーの質問');
  */
 (function () {
     "use strict";
 
     const fs = require("fs");
     const Conv = require("./conv");
-    const Prompt = require("./prompt");
 
     // ═══════════════════════════════════════════════════════════════
     // デフォルト定数(Const).
@@ -383,30 +381,6 @@
         }
 
         /**
-         * サマリー問い合わせプロンプト (system/user) を生成して返す.
-         *
-         * プロンプト本文は prompt.js に固定定義されているため、ここでは
-         * user プロンプトの {{fileName}} {{text}} のみ置き換える.
-         *
-         * @param  {string} fileName  対象のファイル名.
-         * @param  {string} text      要約対象のテキスト
-         * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
-         */
-        getSummaryRequest(fileName, text) {
-            fileName = fileName || "";
-            return {
-                system: Prompt.SUMMARY_REQUEST_SYSTEM_PROMPT,
-                user: Conv.keyValueTemplate(
-                    Prompt.SUMMARY_REQUEST_USER_PROMPT,
-                    "fileName",
-                    fileName,
-                    "text",
-                    text,
-                ),
-            };
-        }
-
-        /**
          * RAG プロンプト内の 1 チャンク分のメッセージ文字列を生成して返す.
          *
          * 複数チャンクを連結する場合は、このメソッドを繰り返し呼び出して
@@ -439,29 +413,6 @@
                 "chunkeds",
                 chunkeds,
             );
-        }
-
-        /**
-         * RAG 問い合わせプロンプト (system/user) を生成して返す.
-         *
-         * プロンプト本文は prompt.js に固定定義されているため、ここでは
-         * user プロンプトの {{chunkMessages}} {{message}} のみ置き換える.
-         *
-         * @param  {string} chunkMessages  getRagRequestChunk() の結果を連結した文字列
-         * @param  {string} message        ユーザーの質問文
-         * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
-         */
-        getRagRequest(chunkMessages, message) {
-            return {
-                system: Prompt.RAG_REQUEST_SYSTEM_PROMPT,
-                user: Conv.keyValueTemplate(
-                    Prompt.RAG_REQUEST_USER_PROMPT,
-                    "chunkMessages",
-                    chunkMessages,
-                    "message",
-                    message,
-                ),
-            };
         }
 
         /**

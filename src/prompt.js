@@ -5,6 +5,8 @@
 (function () {
     "use strict";
 
+    const Conv = require("./conv");
+
     // サマリーシステムプロンプト.
     const SUMMARY_REQUEST_SYSTEM_PROMPT = `
 あなたは ** 日本語のプロの編集者 ** で文書の分類(タグ)・カテゴリ・要約(サマリー)を編集する専門家で、以下の「タイトルと参考文書」に従って回答してください。
@@ -80,6 +82,51 @@
 回答:
 `.trim();
 
+    /**
+     * サマリー問い合わせプロンプト (system/user) を生成して返す.
+     *
+     * user プロンプトの {{fileName}} {{text}} を置き換える.
+     *
+     * @param  {string} fileName  対象のファイル名.
+     * @param  {string} text      要約対象のテキスト
+     * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
+     */
+    const getSummaryRequest = function (fileName, text) {
+        fileName = fileName || "";
+        return {
+            system: SUMMARY_REQUEST_SYSTEM_PROMPT,
+            user: Conv.keyValueTemplate(
+                SUMMARY_REQUEST_USER_PROMPT,
+                "fileName",
+                fileName,
+                "text",
+                text,
+            ),
+        };
+    };
+
+    /**
+     * RAG 問い合わせプロンプト (system/user) を生成して返す.
+     *
+     * user プロンプトの {{chunkMessages}} {{message}} を置き換える.
+     *
+     * @param  {string} chunkMessages  Config.getRagRequestChunk() の結果を連結した文字列
+     * @param  {string} message        ユーザーの質問文
+     * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
+     */
+    const getRagRequest = function (chunkMessages, message) {
+        return {
+            system: RAG_REQUEST_SYSTEM_PROMPT,
+            user: Conv.keyValueTemplate(
+                RAG_REQUEST_USER_PROMPT,
+                "chunkMessages",
+                chunkMessages,
+                "message",
+                message,
+            ),
+        };
+    };
+
     // ═══════════════════════════════════════════════════════════════
     // exports
     // ═══════════════════════════════════════════════════════════════
@@ -88,5 +135,7 @@
         SUMMARY_REQUEST_USER_PROMPT,
         RAG_REQUEST_SYSTEM_PROMPT,
         RAG_REQUEST_USER_PROMPT,
+        getSummaryRequest,
+        getRagRequest,
     };
 })();

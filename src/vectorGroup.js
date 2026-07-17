@@ -55,6 +55,7 @@
     const LlamaCpp = require("./llamaCpp");
     const Conv = require("./conv");
     const Config = require("./config");
+    const Prompt = require("./prompt");
     const util = require("./util");
     const sync = require("./sync");
 
@@ -1114,7 +1115,7 @@
             let tm = Date.now();
             // debug.
             util.debugOut("start.getInferenceMessage(" + textFileName + ")");
-            const sumPrompt = conf.getSummaryRequest(textDocName, text);
+            const sumPrompt = Prompt.getSummaryRequest(textDocName, text);
             let sumTxt = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
                 sumPrompt.system,
@@ -1673,7 +1674,7 @@
                 );
             }
             // RAG プロンプトの作成.
-            const ragPrompt = conf.getRagRequest(chunkString, message);
+            const ragPrompt = Prompt.getRagRequest(chunkString, message);
             // Rag検索を実行.
             let ret = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
