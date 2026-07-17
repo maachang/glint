@@ -7,8 +7,8 @@
  *   - ファイルパス        : vectorStore・参照文書の格納先
  *   - llama.cpp 接続先   : 埋め込み・推論それぞれのサーバー URL リスト
  *   - チャンク設定        : チャンクサイズ・オーバーラップサイズ
- *   - サマリー設定        : 要約生成のプロンプトフォーマットと Temperature
- *   - RAG リクエスト設定  : 検索件数・チャンク数・プロンプトフォーマット
+ *   - サマリー設定        : 要約生成の Temperature (プロンプト本文は prompt.js に固定定義)
+ *   - RAG リクエスト設定  : 検索件数・チャンク数・チャンクフォーマット (プロンプト本文は prompt.js に固定定義)
  *
  * 【使い方】
  *   const Config = require('./config');
@@ -21,18 +21,19 @@
  *   console.log(cfg.vectorStorePath);
  *   console.log(cfg.inferenceList[0].baseUrl);
  *
- *   // サマリー問い合わせプロンプトを生成
- *   const prompt = cfg.getSummaryRequest('要約したいテキスト');
+ *   // サマリー問い合わせプロンプト (system/user) を生成
+ *   const { system, user } = cfg.getSummaryRequest('doc1', '要約したいテキスト');
  *
- *   // RAG 問い合わせプロンプトを生成
- *   const chunk  = cfg.getRagRequestChunk(1, 'doc1', 'https://...', 0.98, 'サマリー文');
- *   const prompt = cfg.getRagRequest(chunk, 'ユーザーの質問');
+ *   // RAG 問い合わせプロンプト (system/user) を生成
+ *   const chunk = cfg.getRagRequestChunk(1, 'doc1', 'https://...', 0.98, 'サマリー文', '類似箇所');
+ *   const { system, user } = cfg.getRagRequest(chunk, 'ユーザーの質問');
  */
 (function () {
     "use strict";
 
     const fs = require("fs");
     const Conv = require("./conv");
+    const Prompt = require("./prompt");
 
     // ═══════════════════════════════════════════════════════════════
     // デフォルト定数(Const).
@@ -102,37 +103,6 @@
      */
     const DEFAULT_RAG_TEMPERATURE = 0.25;
 
-    /**
-     * サマリー問い合わせプロンプトのデフォルトフォーマット.
-     *
-     * プレースホルダー:
-     *   {{fileName}}      : 対象のファイル名
-     *   {{text}}          : サマリー化対象のテキスト
-     */
-    const SUMMARY_REQUEST_FORMAT =
-        "### 指示\n" +
-        "あなたは ** 日本語のプロの編集者 ** で文書の分類(タグ)・カテゴリ・要約(サマリー)を編集する専門家で、以下の「タイトルと参考文書」に従って回答してください。\n" +
-        "####「タグ」は「カテゴリ」を更に固有定義化した「１つのジャンル」で表現してください。たとえば `プログラム` や `生活` や `裁判` や `アウトドア` のようにジャンル的なもので。\n" +
-        "####「カテゴリ」は「サマリー」より簡潔に「1つのワード」「最大でも体言止めの短いフレーズで」「内容を最も象徴する『名詞』のみ」で表現してください。\n" +
-        "####「サマリー」は参考文書内容として、RAGが二次利用できる形「文書内容の要点をまとめ、AIが理解しやすい内容」でまとめてください。\n\n\n" +
-        "### 回答形式\n" +
-        "以下のように tagとcategoryは json format 出力対応（JSON.parseが行える形式）を必ず厳守で\n" +
-        "※ 注意: 必ず *** ~~~json *** で json出力部分を囲う事を前提に「回答形式」の出力を行うこと\n\n" +
-        "~~~json\n" +
-        "{\n" +
-        '"tag":（タグ内容: Array）, \n' +
-        '"category":（カテゴリ内容: Array）,\n' +
-        "}\n" +
-        "~~~\n\n" +
-        "（サマリー内容）\n\n" +
-        "### タイトル\n" +
-        "{{fileName}}\n\n" +
-        "### 参考文書\n" +
-        "{{text}}\n\n" +
-        "--- \n" +
-        "それでは上記の【回答形式】を厳守で日本語(必須)で回答を開始してください。\n" +
-        "回答：";
-
     /** ベクトル検索の最大取得件数デフォルト値 */
     const DEFAULT_VECTOR_SEARCH_LENGTH = 30;
 
@@ -153,47 +123,6 @@
     const DEFAULT_RAG_REQUEST_CHUNK_FORMAT =
         "- {{no}} 参考文書名: {{name}}, 参考文書URL: {{url}}, 類似度: {{score}}:\n" +
         "  - サマリー内容: \n{{summary}}\n質問類似箇所: \n{{chunkeds}}";
-
-    /**
-     * RAG 問い合わせプロンプト全体のフォーマットのデフォルト値.
-     *
-     * 回答できない場合は「情報はありませんでした。」のみを返すよう指示している.
-     * 回答できる場合は参照文書一覧を末尾にマークダウン形式で列挙させる.
-     *
-     * プレースホルダー:
-     *   {{chunkMessages}}  : getRagRequestChunk() で生成したチャンク群を連結した文字列
-     *   {{message}}        : ユーザーの質問文
-     */
-    const DEFAULT_RAG_REQUEST_FORMAT =
-        "### 指示\n" +
-        "あなたは ** 日本語で回答する専門家 ** です。以下の「参考文書」に基づいて、RAGとして「質問」に対する「回答形式」に従って回答してください。\n" +
-        "回答結果に対する参考文書の ** 採用数に応じて **「回答形式」を「完全に切り替えて」回答形式に応じて【回答】フォーマットに従って回答して下さい。\n" +
-        "\n" +
-        "### 回答形式\n" +
-        "※回答共通: 【回答】より、AIの回答開始とする事を厳守します。\n" +
-        "\n" +
-        "####【パターン1: 回答作成に対して、参考文書を採用した件数が ** 存在する **場合】\n" +
-        "※ AIが回答した内容は 回答本文 に記載してください。あと回答を作成する際に 文書名 に紐づくサマリーや質問類似箇所を引用していない内容は【参照文書一覧】に列挙しないことを厳守してください。\n" +
-        "\n" +
-        "【回答】\n" +
-        "回答本文\n" +
-        "【参照文書一覧】\n" +
-        "1. [文書名](文書URL)\n" +
-        "2. [文書名](文書URL)\n" +
-        "\n" +
-        "####【パターン2: 回答作成に対して、参考文書を採用した件数が ** 存在しない ** 場合】\n" +
-        "※この場合「情報はありませんでした。」のみで「参照文書一覧」という文字列やURLは、1文字も出力してはいけません。\n" +
-        "\n" +
-        "【回答】\n" +
-        "情報はありませんでした。\n" +
-        "\n" +
-        "### 参考文書\n" +
-        "{{chunkMessages}}\n\n" +
-        "### 質問\n" +
-        "{{message}}\n\n" +
-        "--- \n" +
-        "それでは上記の【回答形式】のルールを厳守で日本語で回答を開始してください。\n" +
-        "回答:";
 
     // Rag検索結果にこの文字列が存在しない場合に「参考文書情報」を
     // 出力するための確認するワード.
@@ -399,13 +328,6 @@
             this.summaryTemperature = DEFAULT_SUMMARY_TEMPERATURE;
 
             /**
-             * サマリー問い合わせプロンプトフォーマット.
-             * getSummaryRequest() 経由で使用すること.
-             * プレースホルダー: {{text}} {{fileName}}
-             */
-            this.summaryRequestFormat = SUMMARY_REQUEST_FORMAT;
-
-            /**
              * サマリー問い合わせ時の推論モードのOn/Offを設定します.
              *  - true: 推論モードをONで実行します.
              *  - false: 推論モードをOFFで実行します.
@@ -432,13 +354,6 @@
              * プレースホルダー:  {{no}}, {{name}}, {{url}}, {{score}}, {{summary}}
              */
             this.ragRequestChunkFormat = DEFAULT_RAG_REQUEST_CHUNK_FORMAT;
-
-            /**
-             * RAG プロンプト全体のフォーマット.
-             * getRagRequest() 経由で使用すること.
-             * プレースホルダー: {{chunkMessages}}, {{message}}
-             */
-            this.ragRequestFormat = DEFAULT_RAG_REQUEST_FORMAT;
 
             /**
              * Rag検索結果にこの文字列が存在しない場合に「参考文書情報」を
@@ -468,26 +383,27 @@
         }
 
         /**
-         * サマリー問い合わせプロンプト文字列を生成して返す.
+         * サマリー問い合わせプロンプト (system/user) を生成して返す.
          *
-         * summaryRequestFormat 内の {{text}} を
-         * Conv.keyValueTemplate() で置き換える.
-         * @param  {string} src       オリジナルの問い合わせ定義文字を設定します
-         *                            (指定しない場合はコンフィグ値を利用).
+         * プロンプト本文は prompt.js に固定定義されているため、ここでは
+         * user プロンプトの {{fileName}} {{text}} のみ置き換える.
+         *
          * @param  {string} fileName  対象のファイル名.
          * @param  {string} text      要約対象のテキスト
-         * @return {string}           llama.cpp に渡すプロンプト文字列
+         * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
          */
-        getSummaryRequest(src, fileName, text) {
-            src = src || this.summaryRequestFormat;
+        getSummaryRequest(fileName, text) {
             fileName = fileName || "";
-            return Conv.keyValueTemplate(
-                src,
-                "fileName",
-                fileName,
-                "text",
-                text,
-            );
+            return {
+                system: Prompt.SUMMARY_REQUEST_SYSTEM_PROMPT,
+                user: Conv.keyValueTemplate(
+                    Prompt.SUMMARY_REQUEST_USER_PROMPT,
+                    "fileName",
+                    fileName,
+                    "text",
+                    text,
+                ),
+            };
         }
 
         /**
@@ -526,23 +442,26 @@
         }
 
         /**
-         * RAG 問い合わせプロンプト全体を生成して返す.
+         * RAG 問い合わせプロンプト (system/user) を生成して返す.
          *
-         * @param  {string} src            オリジナルの問い合わせ定義文字を設定します
-         *                                 (指定しない場合はコンフィグ値を利用).
+         * プロンプト本文は prompt.js に固定定義されているため、ここでは
+         * user プロンプトの {{chunkMessages}} {{message}} のみ置き換える.
+         *
          * @param  {string} chunkMessages  getRagRequestChunk() の結果を連結した文字列
          * @param  {string} message        ユーザーの質問文
-         * @return {string}                llama.cpp に渡すプロンプト文字列
+         * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
          */
-        getRagRequest(src, chunkMessages, message) {
-            src = src || this.ragRequestFormat;
-            return Conv.keyValueTemplate(
-                src,
-                "chunkMessages",
-                chunkMessages,
-                "message",
-                message,
-            );
+        getRagRequest(chunkMessages, message) {
+            return {
+                system: Prompt.RAG_REQUEST_SYSTEM_PROMPT,
+                user: Conv.keyValueTemplate(
+                    Prompt.RAG_REQUEST_USER_PROMPT,
+                    "chunkMessages",
+                    chunkMessages,
+                    "message",
+                    message,
+                ),
+            };
         }
 
         /**
@@ -667,13 +586,6 @@
                     this.summaryTemperature,
                 ),
             );
-            this.summaryRequestFormat = Conv.getString(
-                _mapToGetValue(
-                    json,
-                    "summaryRequestFormat",
-                    this.summaryRequestFormat,
-                ),
-            );
             this.summaryReasoning = _mapToGetValue(
                 json,
                 "summaryReasoning",
@@ -712,9 +624,6 @@
                     "ragRequestChunkFormat",
                     this.ragRequestChunkFormat,
                 ),
-            );
-            this.ragRequestFormat = Conv.getString(
-                _mapToGetValue(json, "ragRequestFormat", this.ragRequestFormat),
             );
             this.ragReasoning = _mapToGetValue(
                 json,

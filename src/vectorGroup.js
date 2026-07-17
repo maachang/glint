@@ -1052,7 +1052,6 @@
      *   - {number} chunkSize         1チャンクの最大文字数
      *   - {number} overlap           オーバーラップ文字数
      *   - {number} temperature       サマリー推論の正確性を示す値を設定.
-     *   - {string} sumPrompt         サマリープロンプトを設定します.
      *   - {boolean} summaryReasoning サマリー推論モードの ON OFF を設定します.
      * @return {Promise<void>}
      * @throws {Error} .vss が存在しない場合、または llama.cpp サーバーエラーの場合
@@ -1075,7 +1074,6 @@
         let chunkSize = options.chunkSize || conf.chunkSize;
         let overlap = options.overlap || conf.overlapSize;
         let temperature = options.temperature || conf.summaryTemperature;
-        let sumPrompt = options.sumPrompt || null;
         let summaryReasoning =
             options.summaryReasoning == true ||
             options.summaryReasoning == false
@@ -1116,9 +1114,11 @@
             let tm = Date.now();
             // debug.
             util.debugOut("start.getInferenceMessage(" + textFileName + ")");
+            const sumPrompt = conf.getSummaryRequest(textDocName, text);
             let sumTxt = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
-                conf.getSummaryRequest(sumPrompt, textDocName, text),
+                sumPrompt.system,
+                sumPrompt.user,
                 temperature,
                 null,
                 summaryReasoning,
@@ -1573,7 +1573,6 @@
      *   - {number} topLength RAGプロンプトに含めるチャンク数を設定します.
      *   - {number} temperature RAG推論の正確性を示す値を設定します.
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
-     *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
      *   - {string} lastReferenceSmb 対象内容の文字が設定された場合、デフォルト値だと
@@ -1591,7 +1590,6 @@
         let topLength = options.topLength || conf.ragRequestChunkLength;
         let temperature = options.temperature || conf.ragTemperature;
         let ragRequestChunkFormat = options.ragRequestChunkFormat || null;
-        let requestFormat = options.requestFormat || null;
         let ifBaseUrl = options.ifBaseUrl || null;
         let ragReasoning =
             options.ragReasoning == true || options.ragReasoning == false
@@ -1675,15 +1673,12 @@
                 );
             }
             // RAG プロンプトの作成.
-            const ragPrompt = conf.getRagRequest(
-                requestFormat,
-                chunkString,
-                message,
-            );
+            const ragPrompt = conf.getRagRequest(chunkString, message);
             // Rag検索を実行.
             let ret = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
-                ragPrompt,
+                ragPrompt.system,
+                ragPrompt.user,
                 temperature,
                 null,
                 ragReasoning,
@@ -1727,7 +1722,6 @@
      *   - {number} topLength RAGプロンプトに含めるチャンク数を設定します.
      *   - {number} temperature RAG推論の正確性を示す値を設定します.
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
-     *   - {string} requestFormat RAG プロンプト全体のフォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
      *   - {string} lastReferenceSmb 対象内容の文字が設定された場合、デフォルト値だと

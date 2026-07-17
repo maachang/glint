@@ -24,7 +24,9 @@
  *   const emb = await LlamaCpp.getEmbedding('http://localhost:8080', 'こんにちは');
  *
  *   // 推論 (テキストだけ取得)
- *   const msg = await LlamaCpp.getInferenceMessage('http://localhost:8080', '日本の首都は?');
+ *   const msg = await LlamaCpp.getInferenceMessage(
+ *       'http://localhost:8080', 'あなたは地理の専門家です。', '日本の首都は?'
+ *   );
  */
 (function () {
     "use strict";
@@ -49,9 +51,9 @@
      *   0.7 - 0.8 : バランス重視 (対話・説明)
      *   1.0 - 1.2 : 創造性重視 (物語・創作)
      *
-     * RAG では正確性重視のため 0.5 をデフォルトとする.
+     * RAG では正確性重視のため 0.3 をデフォルトとする.
      */
-    const DEF_TEMPERATURE = 0.5;
+    const DEF_TEMPERATURE = 0.3;
 
     // ═══════════════════════════════════════════════════════════════
     // 内部ユーティリティ
@@ -188,7 +190,10 @@
      * 【リクエスト例】
      *   POST /v1/chat/completions
      *   {
-     *     "messages": [{ "role": "user", "content": "質問テキスト" }],
+     *     "messages": [
+     *         { "role": "system", "content": "システムプロンプト" },
+     *         { "role": "user", "content": "ユーザプロンプト" },
+     *     ],
      *     "temperature": 0.3
      *   }
      *
@@ -200,7 +205,8 @@
      *   }
      *
      * @param  {string}  baseUrl      ベース URL
-     * @param  {string}  prompt       質問テキスト
+     * @param  {string}  systemPrompt システムプロンプト
+     * @param  {string}  userPrompt   ユーザプロンプト
      * @param  {number}  [temperature=-1]  Temperature 値. 0 以下 or undefined の場合は
      *                                     デフォルト値を使用.
      * @param  {number}  [maxTokens=-1]    最大生成トークン数. 0 以下 or undefined の
@@ -213,16 +219,25 @@
      */
     const getInference = async function (
         baseUrl,
-        prompt,
+        systemPrompt,
+        userPrompt,
         temperature,
         maxTokens,
         reasoning,
     ) {
+        // systemPrompt が未設定の場合は system メッセージ自体を含めない.
+        var messages =
+            systemPrompt !== undefined && systemPrompt !== null
+                ? Conv.newList(
+                      Conv.newMap("role", "system", "content", systemPrompt),
+                      Conv.newMap("role", "user", "content", userPrompt),
+                  )
+                : Conv.newList(
+                      Conv.newMap("role", "user", "content", userPrompt),
+                  );
         var body = {
             // messages は OpenAI 互換フォーマット: [{ role, content }] の配列
-            messages: Conv.newList(
-                Conv.newMap("role", "user", "content", prompt),
-            ),
+            messages: messages,
             // temperature が 0 より大きい場合は指定値、それ以外はデフォルト値を使用
             temperature:
                 temperature !== undefined && temperature > 0
@@ -236,10 +251,12 @@
         if (maxTokens !== undefined && maxTokens > 0) {
             body.max_tokens = maxTokens;
         }
-        // 推論条件が設定されている場合.
-        if (reasoning == true || reasoning == false) {
-            body["chat_template_kwargs"] = {
-                enable_thinking: reasoning == true,
+        // 推論条件がfalseの場合.
+        if (reasoning == false) {
+            body["think"] = false; // Ollama
+            body["reasoning_effort"] = "none"; // vLLM
+            body["chat_template_kwargs"] = { // llama.cpp / mlx-lm
+                enable_thinking: false
             };
         }
         return _fetch(baseUrl, "v1/chat/completions", body);
@@ -260,7 +277,8 @@
         var list = Conv.getList(top["choices"]);
         var choiceTop = Conv.getMap(list[0]);
         var message = Conv.getMap(choiceTop["message"]);
-        return Conv.getString(message["content"]);
+        return Conv.getString(message["content"]) ||
+            Conv.getString(message["reasoning_content"]);
     };
 
     /**
@@ -270,7 +288,8 @@
      * JSON 全体ではなくテキストだけが必要な場合はこちらを使う.
      *
      * @param  {string}  baseUrl      ベース URL
-     * @param  {string}  prompt       質問テキスト
+     * @param  {string}  systemPrompt システムプロンプト
+     * @param  {string}  userPrompt   ユーザプロンプト
      * @param  {number}  [temperature]  Temperature 値 (省略時はデフォルト)
      * @param  {number}  [maxTokens]    最大生成トークン数 (省略時は指定なし)
      * @param  {boolean} [reasoning=null]  推論ありで実行の場合は true, なしの場合は false
@@ -281,14 +300,16 @@
      */
     const getInferenceMessage = async function (
         baseUrl,
-        prompt,
+        systemPrompt,
+        userPrompt,
         temperature,
         maxTokens,
         reasoning,
     ) {
         var res = await getInference(
             baseUrl,
-            prompt,
+            systemPrompt,
+            userPrompt,
             temperature,
             maxTokens,
             reasoning,
