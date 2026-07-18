@@ -1810,6 +1810,105 @@
         return ret;
     };
 
+    /**
+     * 指定ディレクトリ内に存在する VectorGroup (.vgsファイル) のグループ名一覧を返す.
+     *
+     * updateVectorGroupFileNames() と異なり、変更検出用の Map を必要とせず、
+     * その時点で存在するグループ名を単純に列挙する (APIの一覧取得などに利用).
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param  {string} [*]dirPath  走査するディレクトリパス
+     * @return {string[]}  グループ名の配列.
+     */
+    const listGroups = function (dirPath) {
+        dirPath = _mkdirsToVectorStore(dirPath);
+        const files = _getPathToFiles(dirPath);
+        const ret = [];
+        for (let i = 0; i < files.length; i++) {
+            const name = files[i];
+            if (!name.endsWith(VECTOR_GROUP_FILE_EXTENSION)) continue;
+            ret.push(name.slice(0, -FILE_EXTENSION_SIZE));
+        }
+        return ret;
+    };
+
+    /**
+     * グループ内の全文書が持つ tag / category の集計情報を返す.
+     *
+     * 各文書のサマリー保存テキスト (putTextFileToVectorGroup() が
+     * "~~~json {tag, category, summary} ~~~" 形式で保存したもの) を
+     * _resultSummayToJson() で再パースして集計する.
+     *
+     * tag は1文書1値の想定なので単純カウント、category は1文書で複数の値を
+     * 持てる想定なので、該当する category 全てにカウントする.
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param  {string} groupName   グループ名
+     * @param  {string} [*]dirPath  ディレクトリパス
+     * @return {{
+     *   totalDocuments: number,
+     *   unparsedDocuments: number,
+     *   tags: {name: string, count: number, ratio: number}[],
+     *   categories: {name: string, count: number, ratio: number}[]
+     * }}
+     */
+    const getGroupStats = async function (groupName, dirPath) {
+        const vgObj = await loadVectorGroup(groupName, dirPath);
+        const summary = vgObj.getSummary();
+        const names = summary.getDocuments();
+        const totalDocuments = names.length;
+
+        const tagCounts = new Map();
+        const categoryCounts = new Map();
+        let unparsedDocuments = 0;
+
+        for (let i = 0; i < names.length; i++) {
+            const text = summary.getText(names[i]);
+            const parsed = _resultSummayToJson(text);
+            if (parsed == null) {
+                unparsedDocuments++;
+                continue;
+            }
+            // tag は1文書1値の想定 (String).
+            if (typeof parsed.tag === "string" && parsed.tag.length > 0) {
+                tagCounts.set(parsed.tag, (tagCounts.get(parsed.tag) || 0) + 1);
+            }
+            // category は複数値の想定 (Array). 単一値で返ってきた場合も配列扱いにする.
+            const categories = Array.isArray(parsed.category)
+                ? parsed.category
+                : parsed.category
+                  ? [parsed.category]
+                  : [];
+            for (let j = 0; j < categories.length; j++) {
+                const c = categories[j];
+                if (typeof c === "string" && c.length > 0) {
+                    categoryCounts.set(c, (categoryCounts.get(c) || 0) + 1);
+                }
+            }
+        }
+
+        // Map を {name, count, ratio} 配列に変換し、件数の多い順に並べる.
+        const toSortedArray = function (counts) {
+            const ret = [];
+            counts.forEach(function (count, name) {
+                ret.push({
+                    name,
+                    count,
+                    ratio: totalDocuments > 0 ? count / totalDocuments : 0,
+                });
+            });
+            ret.sort((a, b) => b.count - a.count);
+            return ret;
+        };
+
+        return {
+            totalDocuments,
+            unparsedDocuments,
+            tags: toSortedArray(tagCounts),
+            categories: toSortedArray(categoryCounts),
+        };
+    };
+
     // ========================================================
     // モジュールエクスポート
     // ========================================================
@@ -1825,5 +1924,7 @@
         searchInference,
         search,
         updateVectorGroupFileNames,
+        listGroups,
+        getGroupStats,
     };
 })();

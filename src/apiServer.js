@@ -5,9 +5,12 @@
  * Node.js 標準の http モジュールのみで実装 (外部依存なし).
  *
  * 【エンドポイント】
- *   POST   /groups/:group/documents           文書登録 (非同期. 即時にjobIdを返す)
- *   GET    /jobs/:jobId                        文書登録ジョブの状態確認
+ *   GET    /groups                             グループ一覧
+ *   GET    /groups/:group/documents             グループ内の文書一覧・文書数
+ *   GET    /groups/:group/stats                 グループ内の tag/category 集計 (件数・比率)
+ *   POST   /groups/:group/documents             文書登録 (非同期. 即時にjobIdを返す)
  *   DELETE /groups/:group/documents/:fileName  文書削除
+ *   GET    /jobs/:jobId                        文書登録ジョブの状態確認
  *   POST   /groups/:group/search               RAG検索 (embedding検索 + 推論. 同期)
  *   GET    /health                             llama.cpp接続先の状態確認
  *
@@ -196,6 +199,31 @@
         _sendJson(res, 200, { removed });
     };
 
+    // GET /groups
+    const _handleListGroups = function (req, res) {
+        const groups = vg.listGroups();
+        _sendJson(res, 200, { groups });
+    };
+
+    // GET /groups/:group/documents
+    const _handleListDocuments = async function (req, res, groupName) {
+        const vgObj = await vg.loadVectorGroup(groupName);
+        const summary = vgObj.getSummary();
+        const names = summary.getDocuments();
+        const documents = names.map((name) => ({
+            name,
+            url: summary.getUrl(name),
+            time: Number(summary.getTime(name)),
+        }));
+        _sendJson(res, 200, { count: documents.length, documents });
+    };
+
+    // GET /groups/:group/stats
+    const _handleGroupStats = async function (req, res, groupName) {
+        const stats = await vg.getGroupStats(groupName);
+        _sendJson(res, 200, stats);
+    };
+
     // POST /groups/:group/search
     const _handleSearch = async function (req, res, groupName) {
         const body = await _readJsonBody(req);
@@ -239,9 +267,18 @@
             _handleGetJob(req, res, seg[1]);
             return;
         }
+        // GET /groups
+        if (req.method === "GET" && seg.length === 1 && seg[0] === "groups") {
+            _handleListGroups(req, res);
+            return;
+        }
         // /groups/:group/documents[/...]
         if (seg[0] === "groups" && seg[2] === "documents") {
             const groupName = seg[1];
+            if (req.method === "GET" && seg.length === 3) {
+                await _handleListDocuments(req, res, groupName);
+                return;
+            }
             if (req.method === "POST" && seg.length === 3) {
                 await _handlePutDocument(req, res, groupName);
                 return;
@@ -250,6 +287,16 @@
                 await _handleDeleteDocument(req, res, groupName, seg[3]);
                 return;
             }
+        }
+        // GET /groups/:group/stats
+        if (
+            req.method === "GET" &&
+            seg.length === 3 &&
+            seg[0] === "groups" &&
+            seg[2] === "stats"
+        ) {
+            await _handleGroupStats(req, res, seg[1]);
+            return;
         }
         // POST /groups/:group/search
         if (
