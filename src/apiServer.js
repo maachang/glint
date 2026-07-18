@@ -11,6 +11,7 @@
  *   GET    /groups/:group/stats                 グループ内の tag/category 集計 (件数・比率)
  *   POST   /groups/:group/documents             文書登録 (非同期. 即時にjobIdを返す)
  *   DELETE /groups/:group/documents/:fileName  文書削除
+ *   GET    /groups/:group/documents/:fileName/raw  元データの取得 (url自動発行時のみ有効)
  *   GET    /jobs/:jobId                        文書登録ジョブの状態確認
  *   POST   /groups/:group/search               RAG検索 (embedding検索 + 推論. 同期)
  *   GET    /health                             llama.cpp接続先の状態確認
@@ -25,6 +26,12 @@
  *   必須とする. pdfExtract.js でテキストを抽出してから登録する.
  *   ※ テキストレイヤーの無いスキャン画像PDFからは抽出できない.
  *
+ * 【url未指定時の自動URL発行について】
+ *   POST /groups/:group/documents で "url" が未指定の場合、アップロードされた
+ *   元データ (テキストまたはPDFバイナリ) を conf.srcDocumentPath 配下に保存し、
+ *   GET /groups/:group/documents/:fileName/raw で読み出せるURLを自動生成して
+ *   文書の参照URLとして使用する.
+ *
  * 【llama.cppサーバが利用不可の場合】
  *   ConnectMan.acquire() が例外を throw するので、そのまま 503 として返す
  *   (待機・リトライは行わない).
@@ -38,14 +45,96 @@
 
     const http = require("http");
     const crypto = require("crypto");
+    const fs = require("fs");
 
     const Config = require("./config.js");
     const ConnectMan = require("./connectMan.js");
     const vg = require("./vectorGroup.js");
     const pdfExtract = require("./pdfExtract.js");
+    const util = require("./util.js");
 
     // PDF登録時に受け付けるMIMEタイプ.
     const MIME_TYPE_PDF = "application/pdf";
+    // テキスト登録時のMIMEタイプ.
+    const MIME_TYPE_TEXT = "text/plain; charset=utf-8";
+    // 元データのメタ情報 (mimeType) を保持するサイドカーファイルの拡張子.
+    const RAW_META_EXTENSION = ".meta.json";
+
+    // ═══════════════════════════════════════════════════════════════
+    // 元データ保存 (url未指定時の自動URL発行用).
+    // ═══════════════════════════════════════════════════════════════
+
+    // グループ毎の元データ格納先ディレクトリを取得 (無ければ作成する).
+    const _getSrcDocumentDir = function (groupName) {
+        const conf = Config.getInstance();
+        const dir = util.joinPath(
+            conf.dirPath,
+            conf.srcDocumentPath,
+            groupName,
+        );
+        fs.mkdirSync(dir, { recursive: true });
+        return dir;
+    };
+
+    // 元データ (テキスト or PDFバイナリ) と、登録時に実際に使用した mimeType を保存する.
+    // ※ mimeType はファイル名の拡張子から推測せず、登録時の判定結果をそのまま使うこと.
+    const _saveRawDocument = function (groupName, fileName, buffer, mimeType) {
+        const dir = _getSrcDocumentDir(groupName);
+        fs.writeFileSync(dir + "/" + fileName, buffer);
+        fs.writeFileSync(
+            dir + "/" + fileName + RAW_META_EXTENSION,
+            JSON.stringify({ mimeType }),
+        );
+    };
+
+    // 保存済みの元データを読み込む (存在しない場合は null).
+    const _loadRawDocument = function (groupName, fileName) {
+        try {
+            const conf = Config.getInstance();
+            const filePath = util.joinPath(
+                conf.dirPath,
+                conf.srcDocumentPath,
+                groupName,
+                fileName,
+            );
+            return fs.readFileSync(filePath);
+        } catch (e) {
+            return null;
+        }
+    };
+
+    // 保存済みの元データの mimeType を取得する.
+    // メタ情報が存在しない (削除済み・旧データ等) 場合は null.
+    const _loadRawDocumentMimeType = function (groupName, fileName) {
+        try {
+            const conf = Config.getInstance();
+            const metaPath = util.joinPath(
+                conf.dirPath,
+                conf.srcDocumentPath,
+                groupName,
+                fileName + RAW_META_EXTENSION,
+            );
+            const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            return meta.mimeType || null;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    // 保存済みの元データ (+ メタ情報) を削除する (存在しない場合は何もしない).
+    const _removeRawDocument = function (groupName, fileName) {
+        const dir = _getSrcDocumentDir(groupName);
+        try {
+            fs.unlinkSync(dir + "/" + fileName);
+        } catch (e) {
+            // 元々存在しない場合は無視する.
+        }
+        try {
+            fs.unlinkSync(dir + "/" + fileName + RAW_META_EXTENSION);
+        } catch (e) {
+            // 元々存在しない場合は無視する.
+        }
+    };
 
     // デフォルトの待受ポート.
     const DEFAULT_PORT = 3000;
@@ -157,7 +246,7 @@
     const _handlePutDocument = async function (req, res, groupName) {
         const body = await _readJsonBody(req);
         const fileName = body.fileName;
-        const url = body.url;
+        let url = body.url;
         const isPdf = body.mimeType === MIME_TYPE_PDF;
 
         if (!fileName) {
@@ -178,6 +267,25 @@
             return;
         }
 
+        // 元データのバイナリ表現 (url未指定時の自動保存・PDFテキスト抽出で使う).
+        const rawBuffer = isPdf
+            ? Buffer.from(body.fileBase64, "base64")
+            : Buffer.from(body.text, "utf8");
+
+        // url が未指定の場合、元データを保存して読み出し用URLを自動発行する.
+        if (!url) {
+            _saveRawDocument(
+                groupName,
+                fileName,
+                rawBuffer,
+                isPdf ? MIME_TYPE_PDF : MIME_TYPE_TEXT,
+            );
+            url =
+                "http://" + req.headers.host +
+                "/groups/" + encodeURIComponent(groupName) +
+                "/documents/" + encodeURIComponent(fileName) + "/raw";
+        }
+
         const jobId = _createJob();
         // レスポンスは即時に返し、実処理はバックグラウンドで継続する.
         _sendJson(res, 202, { jobId, status: "pending" });
@@ -190,9 +298,7 @@
         try {
             // PDFの場合は先にテキストを抽出してから登録する.
             const text = isPdf
-                ? await pdfExtract.extractText(
-                      Buffer.from(body.fileBase64, "base64"),
-                  )
+                ? await pdfExtract.extractText(rawBuffer)
                 : body.text;
             await vg.putTextFileToVectorGroup(
                 groupName,
@@ -230,7 +336,34 @@
             groupName,
             fileName,
         );
+        // 自動発行URL用に保存していた元データも合わせて削除する (無ければ無視).
+        _removeRawDocument(groupName, fileName);
         _sendJson(res, 200, { removed });
+    };
+
+    // GET /groups/:group/documents/:fileName/raw
+    const _handleGetRawDocument = function (req, res, groupName, fileName) {
+        const buffer = _loadRawDocument(groupName, fileName);
+        if (buffer == null) {
+            _sendError(
+                res,
+                404,
+                "Raw source data does not exist for: " + fileName,
+            );
+            return;
+        }
+        // 登録時に実際に使用した mimeType を優先する.
+        // (メタ情報が無い場合のみ、ファイル名拡張子から推測してフォールバックする)
+        const contentType =
+            _loadRawDocumentMimeType(groupName, fileName) ||
+            (fileName.toLowerCase().endsWith(".pdf")
+                ? MIME_TYPE_PDF
+                : MIME_TYPE_TEXT);
+        res.writeHead(200, {
+            "Content-Type": contentType,
+            "Content-Length": buffer.length,
+        });
+        res.end(buffer);
     };
 
     // GET /groups
@@ -333,6 +466,15 @@
             }
             if (req.method === "DELETE" && seg.length === 4) {
                 await _handleDeleteDocument(req, res, groupName, seg[3]);
+                return;
+            }
+            // GET /groups/:group/documents/:fileName/raw
+            if (
+                req.method === "GET" &&
+                seg.length === 5 &&
+                seg[4] === "raw"
+            ) {
+                _handleGetRawDocument(req, res, groupName, seg[3]);
                 return;
             }
         }
