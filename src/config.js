@@ -420,6 +420,15 @@
              */
             this.logLevel = DEFAULT_LOG_LEVEL;
 
+            /**
+             * apiServer.js が文書登録時に「url未指定」の場合に自動発行する
+             * 参照URLのベースURL (例: "https://example.com:3000", 末尾スラッシュ無し).
+             * 未設定 (null) の場合は、リクエストの Host ヘッダーから組み立てる.
+             * リバースプロキシ等の背後で動かす場合、外部から実際に到達可能な
+             * アドレスと Host ヘッダーが一致しないことがあるため、その場合に指定する.
+             */
+            this.publicBaseUrl = null;
+
             // configファイルをロードしたかのフラグ.
             this.loadConfigFlag = false;
         }
@@ -657,6 +666,17 @@
             this.logLevel = Conv.getString(
                 _mapToGetValue(json, "logLevel", this.logLevel),
             );
+
+            // ─── apiServer ────────────────────────────────
+            this.publicBaseUrl = _mapToGetValue(
+                json,
+                "publicBaseUrl",
+                this.publicBaseUrl,
+            );
+            this.publicBaseUrl =
+                this.publicBaseUrl != null
+                    ? Conv.getString(this.publicBaseUrl).replace(/\/+$/, "")
+                    : null;
         }
 
         /**

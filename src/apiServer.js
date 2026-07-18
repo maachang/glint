@@ -136,6 +136,19 @@
         }
     };
 
+    // url未指定時に自動発行する raw 取得用URLを組み立てる.
+    // conf.publicBaseUrl が設定されていればそれを使い (リバースプロキシ等の背後で
+    // 動かす場合を想定)、未設定ならリクエストの Host ヘッダーから組み立てる.
+    const _buildRawDocumentUrl = function (req, groupName, fileName) {
+        const conf = Config.getInstance();
+        const base = conf.publicBaseUrl || "http://" + req.headers.host;
+        return (
+            base +
+            "/groups/" + encodeURIComponent(groupName) +
+            "/documents/" + encodeURIComponent(fileName) + "/raw"
+        );
+    };
+
     // デフォルトの待受ポート.
     const DEFAULT_PORT = 3000;
 
@@ -280,10 +293,7 @@
                 rawBuffer,
                 isPdf ? MIME_TYPE_PDF : MIME_TYPE_TEXT,
             );
-            url =
-                "http://" + req.headers.host +
-                "/groups/" + encodeURIComponent(groupName) +
-                "/documents/" + encodeURIComponent(fileName) + "/raw";
+            url = _buildRawDocumentUrl(req, groupName, fileName);
         }
 
         const jobId = _createJob();
