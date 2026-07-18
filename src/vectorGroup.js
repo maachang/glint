@@ -1407,6 +1407,56 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
+     * [private]検索結果 (VectorChunk[]) を tag/category でフィルタリングする.
+     *
+     * 各チャンクの docName から保存済みサマリーテキストを再パースして tag/category
+     * を取得し、tags/categories のいずれかに1つでも一致すれば残す (OR条件).
+     * tags/categories どちらも未指定の場合は絞り込みを行わずそのまま返す.
+     *
+     * ※ ベクトル検索で既に上位 length 件に絞られた候補に対する事後フィルタである点に注意.
+     *   (フィルタ対象のタグ/カテゴリを持つ文書が、そもそも上位候補に入っていなければ拾えない)
+     *
+     * @param  {VectorChunk[]} list        フィルタ対象の検索結果.
+     * @param  {string[]}      [tags]       絞り込み対象の tag 一覧.
+     * @param  {string[]}      [categories] 絞り込み対象の category 一覧.
+     * @return {VectorChunk[]}
+     */
+    const _filterByTagCategory = function (list, tags, categories) {
+        const tagSet = Array.isArray(tags) && tags.length > 0 ? new Set(tags) : null;
+        const categorySet =
+            Array.isArray(categories) && categories.length > 0
+                ? new Set(categories)
+                : null;
+        if (tagSet == null && categorySet == null) {
+            return list;
+        }
+        return list.filter(function (chunk) {
+            const parsed = _resultSummayToJson(
+                chunk.summary.getText(chunk.docName),
+            );
+            if (parsed == null) {
+                return false;
+            }
+            if (tagSet != null && tagSet.has(parsed.tag)) {
+                return true;
+            }
+            if (categorySet != null) {
+                const cats = Array.isArray(parsed.category)
+                    ? parsed.category
+                    : parsed.category
+                      ? [parsed.category]
+                      : [];
+                for (let i = 0; i < cats.length; i++) {
+                    if (categorySet.has(cats[i])) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        });
+    };
+
+    /**
      * 自然言語クエリを受け取り、VectorGroup からスコア降順の VectorChunk[] を返す.
      *
      * 【処理の流れ】
@@ -1414,7 +1464,8 @@
      *      (長い質問文もチャンク単位で検索することで検索漏れを防ぐ)
      *   2. 各クエリチャンクを LlamaCpp.getEmbedding() でベクトル化する.
      *   3. VectorGroup.searchEmbedding() でスコア上位 length 件を取得してリストに追加する.
-     *   4. 全クエリチャンクの結果をまとめてスコア降順にソートして返す.
+     *   4. 全クエリチャンクの結果をまとめてスコア降順にソートする.
+     *   5. tags/categories が指定されている場合、それらに一致する文書のみに絞り込む.
      *
      * 【使い方】
      *   const vg = await loadVectorGroup('docs', '/data');
@@ -1431,6 +1482,8 @@
      *   - {number}          chunkSize      クエリ分割時の最大文字数
      *   - {number}          overlapSize    クエリ分割時のオーバーラップ文字数
      *   - {string}          embBaseUrl     埋め込みモデルサーバーの URL
+     *   - {string[]}        tags           絞り込み対象の tag 一覧 (いずれか一致でOR).
+     *   - {string[]}        categories     絞り込み対象の category 一覧 (いずれか一致でOR).
      * @return {Promise<VectorChunk[]>}     スコア降順にソートされた結果配列
      */
     const searchEmbedding = async function (vg, message, options) {
@@ -1475,7 +1528,8 @@
             list.sort(function (a, b) {
                 return b.score - a.score;
             });
-            return list;
+            // tags/categories が指定されている場合はそれらに一致する文書のみに絞り込む.
+            return _filterByTagCategory(list, options.tags, options.categories);
         } finally {
             // 利用終了.
             if (embObj != null) {
@@ -1926,5 +1980,8 @@
         updateVectorGroupFileNames,
         listGroups,
         getGroupStats,
+        // 保存済みサマリーテキストから {tag, category, summary} を再パースする.
+        // (putTextFileToVectorGroup() が保存する "~~~json {...} ~~~" 形式が対象)
+        parseSummaryJson: _resultSummayToJson,
     };
 })();

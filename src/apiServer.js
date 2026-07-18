@@ -210,11 +210,18 @@
         const vgObj = await vg.loadVectorGroup(groupName);
         const summary = vgObj.getSummary();
         const names = summary.getDocuments();
-        const documents = names.map((name) => ({
-            name,
-            url: summary.getUrl(name),
-            time: Number(summary.getTime(name)),
-        }));
+        const documents = names.map((name) => {
+            // 保存済みサマリーテキストから tag/category を再抽出する.
+            // 旧形式など解析できない場合は null にする.
+            const parsed = vg.parseSummaryJson(summary.getText(name));
+            return {
+                name,
+                url: summary.getUrl(name),
+                time: Number(summary.getTime(name)),
+                tag: parsed ? parsed.tag ?? null : null,
+                category: parsed ? parsed.category ?? null : null,
+            };
+        });
         _sendJson(res, 200, { count: documents.length, documents });
     };
 
@@ -225,6 +232,8 @@
     };
 
     // POST /groups/:group/search
+    // body: { message, tags?, categories?, options? }
+    // tags/categories はベクトル検索結果に対する事後フィルタ (いずれか一致でOR).
     const _handleSearch = async function (req, res, groupName) {
         const body = await _readJsonBody(req);
         const message = body.message;
@@ -232,8 +241,13 @@
             _sendError(res, 400, "message is required in the request body.");
             return;
         }
+        // options に tags/categories をマージする (options 側の指定を優先).
+        const options = Object.assign(
+            { tags: body.tags, categories: body.categories },
+            body.options,
+        );
         const vgObj = await vg.loadVectorGroup(groupName);
-        const answer = await vg.search(vgObj, message, body.options);
+        const answer = await vg.search(vgObj, message, options);
         _sendJson(res, 200, { answer });
     };
 
