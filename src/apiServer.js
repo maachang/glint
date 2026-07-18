@@ -2,7 +2,8 @@
  * apiServer.js
  *
  * 文書登録・RAG検索を HTTP API として提供するサーバー.
- * Node.js 標準の http モジュールのみで実装 (外部依存なし).
+ * HTTP部分は Node.js 標準の http モジュールのみで実装しているが、
+ * PDF登録対応のため pdfExtract.js 経由で外部npm依存 (pdf-parse) を利用する.
  *
  * 【エンドポイント】
  *   GET    /groups                             グループ一覧
@@ -17,6 +18,12 @@
  * 【文書登録が非同期な理由】
  *   サマリー生成 + 埋め込みベクトル化で数秒〜数十秒かかるため、リクエストを
  *   ブロックせず即時に jobId を返し、GET /jobs/:jobId で結果を確認する形にしている.
+ *
+ * 【PDF登録について】
+ *   POST /groups/:group/documents のリクエストボディで "mimeType": "application/pdf"
+ *   を指定した場合、"text" の代わりに "fileBase64" (PDFバイナリをbase64化したもの) を
+ *   必須とする. pdfExtract.js でテキストを抽出してから登録する.
+ *   ※ テキストレイヤーの無いスキャン画像PDFからは抽出できない.
  *
  * 【llama.cppサーバが利用不可の場合】
  *   ConnectMan.acquire() が例外を throw するので、そのまま 503 として返す
@@ -35,6 +42,10 @@
     const Config = require("./config.js");
     const ConnectMan = require("./connectMan.js");
     const vg = require("./vectorGroup.js");
+    const pdfExtract = require("./pdfExtract.js");
+
+    // PDF登録時に受け付けるMIMEタイプ.
+    const MIME_TYPE_PDF = "application/pdf";
 
     // デフォルトの待受ポート.
     const DEFAULT_PORT = 3000;
@@ -141,17 +152,29 @@
     };
 
     // POST /groups/:group/documents
+    // body: { fileName, url, text } または
+    //       { fileName, url, mimeType: "application/pdf", fileBase64 }
     const _handlePutDocument = async function (req, res, groupName) {
         const body = await _readJsonBody(req);
         const fileName = body.fileName;
         const url = body.url;
-        const text = body.text;
-        if (!fileName || typeof text !== "string") {
-            _sendError(
-                res,
-                400,
-                "fileName and text are required in the request body.",
-            );
+        const isPdf = body.mimeType === MIME_TYPE_PDF;
+
+        if (!fileName) {
+            _sendError(res, 400, "fileName is required in the request body.");
+            return;
+        }
+        if (isPdf) {
+            if (typeof body.fileBase64 !== "string" || body.fileBase64.length === 0) {
+                _sendError(
+                    res,
+                    400,
+                    "fileBase64 is required when mimeType is " + MIME_TYPE_PDF + ".",
+                );
+                return;
+            }
+        } else if (typeof body.text !== "string") {
+            _sendError(res, 400, "text is required in the request body.");
             return;
         }
 
@@ -161,9 +184,16 @@
 
         console.info(
             "[job:" + jobId + "] start putTextFileToVectorGroup: group=" +
-                groupName + " fileName=" + fileName,
+                groupName + " fileName=" + fileName +
+                (isPdf ? " (pdf)" : ""),
         );
         try {
+            // PDFの場合は先にテキストを抽出してから登録する.
+            const text = isPdf
+                ? await pdfExtract.extractText(
+                      Buffer.from(body.fileBase64, "base64"),
+                  )
+                : body.text;
             await vg.putTextFileToVectorGroup(
                 groupName,
                 fileName,

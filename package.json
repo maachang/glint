@@ -1,0 +1,13 @@
+{
+  "name": "glint",
+  "version": "0.1.0",
+  "description": "localLLM(llama.cpp)を使ったRAGシステム",
+  "private": true,
+  "main": "src/apiServer.js",
+  "scripts": {
+    "start": "node src/apiServer.js"
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.1"
+  }
+}
