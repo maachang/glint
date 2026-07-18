@@ -1,27 +1,30 @@
 /**
  * LlamaCpp.js
  *
- * llama.cpp サーバーへの HTTP アクセス処理をまとめたモジュール.
+ * llama.cpp サーバー、および OpenAI / OpenAI互換API (ルーターモード等) への
+ * HTTP アクセス処理をまとめたモジュール.
  *
- * 【llama.cpp とは】
- *   C++ で実装されたローカル LLM (大規模言語モデル) 推論エンジン.
- *   --server オプションで OpenAI 互換の REST API サーバーを起動できる.
- *   このモジュールはそのサーバーに対して HTTP POST を送り、
- *   「埋め込みベクトルの取得」と「テキスト推論 (チャット補完)」を行う.
+ * 【対応先】
+ *   - llama.cpp (--server オプションで起動した OpenAI 互換サーバー)
+ *   - OpenAI 本家 API
+ *   - LiteLLM 等の OpenAI互換ルーター (複数モデルを "model" で切り替える構成)
+ *   model / apiKey を指定しない場合は、従来通り llama.cpp の単一モデル運用として動作する.
  *
  * 【エンドポイント】
- *   GET  /health              サーバーの生存確認
+ *   GET  /health              サーバーの生存確認 (llama.cpp のみ対応)
  *   POST /v1/embeddings       テキスト → 埋め込みベクトル変換
  *   POST /v1/chat/completions テキスト推論 (チャット補完)
  *
  * 【使い方】
  *   const LlamaCpp = require('./LlamaCpp');
  *
- *   // ヘルスチェック
- *   const ok = await LlamaCpp.health('http://localhost:8080');
- *
- *   // 埋め込みベクトル取得
+ *   // 埋め込みベクトル取得 (llama.cpp, model指定なし)
  *   const emb = await LlamaCpp.getEmbedding('http://localhost:8080', 'こんにちは');
+ *
+ *   // 埋め込みベクトル取得 (OpenAI互換ルーター, model + apiKey指定)
+ *   const emb2 = await LlamaCpp.getEmbedding(
+ *       'https://router.example.com', 'こんにちは', 'text-embedding-3-small', 'sk-xxxx'
+ *   );
  *
  *   // 推論 (テキストだけ取得)
  *   const msg = await LlamaCpp.getInferenceMessage(
@@ -86,17 +89,24 @@
      * @param  {string}  endpoint     エンドポイントパス
      * @param  {Object}  body         POST ボディ (JSON シリアライズ前の Object)
      * @param  {boolean} [rawText]    true の場合、JSON パースせずに文字列のまま返す
+     * @param  {string}  [apiKey]     指定時は Authorization: Bearer {apiKey} ヘッダーを送信する.
      * @return {Promise<Object|string>}  レスポンスの JSON オブジェクト (rawText=true の場合は文字列)
      * @throws {Error}   HTTP エラーまたはレスポンスに error フィールドが含まれる場合
      */
-    const _fetch = async function (baseUrl, endpoint, body, rawText) {
+    const _fetch = async function (baseUrl, endpoint, body, rawText, apiKey) {
         const conf = Config.getInstance();
         const url = _buildUrl(baseUrl, endpoint);
         const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
 
+        const headers = { "Content-Type": "application/json" };
+        // OpenAI / OpenAI互換API (ルーターモード等) 向けの認証ヘッダー.
+        if (apiKey) {
+            headers["Authorization"] = "Bearer " + apiKey;
+        }
+
         const res = await fetch(url, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: headers,
             body: bodyStr,
             signal: AbortSignal.timeout(conf.fetchTimeout), // タイムアウト設定.
             keepalive: true,
@@ -153,17 +163,25 @@
      *
      * @param  {string}             baseUrl  ベース URL
      * @param  {string}             text     ベクトル変換対象のテキスト
+     * @param  {string}             [model]  リクエストボディに含める model 名.
+     *                                       未指定時は body に model を含めない
+     *                                       (llama.cpp の単一モデル運用向け).
+     *                                       OpenAI / ルーターモードでは必須.
+     * @param  {string}             [apiKey] Authorization: Bearer ヘッダーに使うAPIキー.
      * @return {Promise<Float32Array>}       埋め込みベクトル
      * @throws {Error}              サーバーエラーまたはレスポンス構造が不正な場合
      */
-    const getEmbedding = async function (baseUrl, text) {
+    const getEmbedding = async function (baseUrl, text, model, apiKey) {
         var body = {
-            model: "embeddinggemma", // llama.cpp で使用する埋め込みモデル名
             input: text,
             stream: false,
         };
+        // model が指定されている場合のみボディに含める.
+        if (model) {
+            body.model = model;
+        }
 
-        var result = await _fetch(baseUrl, "v1/embeddings", body);
+        var result = await _fetch(baseUrl, "v1/embeddings", body, false, apiKey);
 
         // レスポンスから data[0].embedding を取り出す
         var list = Conv.getList(Conv.getMap(result)["data"]);
@@ -214,6 +232,11 @@
      * @param  {boolean} [reasoning=null]  推論ありで実行の場合は true, なしの場合は false
      *                                     また llama-server の起動オプションが `--reasoning off`
      *                                     の場合は true にしても変更されないので注意が必要です.
+     * @param  {string}  [model]      リクエストボディに含める model 名.
+     *                                未指定時は body に model を含めない
+     *                                (llama.cpp の単一モデル運用向け).
+     *                                OpenAI / ルーターモードでは必須.
+     * @param  {string}  [apiKey]     Authorization: Bearer ヘッダーに使うAPIキー.
      * @return {Promise<Object>}      /v1/chat/completions のレスポンス JSON
      * @throws {Error}   サーバーエラーの場合
      */
@@ -224,6 +247,8 @@
         temperature,
         maxTokens,
         reasoning,
+        model,
+        apiKey,
     ) {
         // systemPrompt が未設定の場合は system メッセージ自体を含めない.
         var messages =
@@ -259,7 +284,11 @@
                 enable_thinking: false
             };
         }
-        return _fetch(baseUrl, "v1/chat/completions", body);
+        // model が指定されている場合のみボディに含める.
+        if (model) {
+            body.model = model;
+        }
+        return _fetch(baseUrl, "v1/chat/completions", body, false, apiKey);
     };
 
     /**
@@ -295,6 +324,8 @@
      * @param  {boolean} [reasoning=null]  推論ありで実行の場合は true, なしの場合は false
      *                                     また llama-server の起動オプションが `--reasoning off`
      *                                     の場合は true にしても変更されないので注意が必要です.
+     * @param  {string}  [model]      リクエストボディに含める model 名 (省略時は含めない).
+     * @param  {string}  [apiKey]     Authorization: Bearer ヘッダーに使うAPIキー.
      * @return {Promise<string>}      LLM が生成した回答テキスト
      * @throws {Error}   サーバーエラーの場合
      */
@@ -305,6 +336,8 @@
         temperature,
         maxTokens,
         reasoning,
+        model,
+        apiKey,
     ) {
         var res = await getInference(
             baseUrl,
@@ -313,6 +346,8 @@
             temperature,
             maxTokens,
             reasoning,
+            model,
+            apiKey,
         );
         return getResultInferenceToText(res);
     };

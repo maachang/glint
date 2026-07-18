@@ -54,16 +54,28 @@
      * 指定サーバに対してヘルスチェック (GET /health) を実施し、
      * info.healthy を更新する.
      *
+     * info.supportsHealthCheck が false の接続先 (OpenAI本家やヘルスチェック用の
+     * 共通エンドポイントを持たないOpenAI互換ルーター等) は、そもそも確認手段が
+     * 無いため常に healthy 扱いとし、fetch は行わない.
+     *
      * @param  {LlamaCppInfo} info  対象サーバ情報.
      * @return {Promise<boolean>}   ヘルスチェック結果 (true=正常).
      */
     const checkHealth = async function (info) {
+        if (info.supportsHealthCheck === false) {
+            info.healthy = true;
+            return true;
+        }
         let baseUrl = info.baseUrl;
         if (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.slice(0, -1);
         }
         try {
-            const res = await fetch(baseUrl + "/health");
+            const res = await fetch(baseUrl + "/health", {
+                headers: info.apiKey
+                    ? { Authorization: "Bearer " + info.apiKey }
+                    : {},
+            });
             info.healthy = res.ok;
         } catch (e) {
             info.healthy = false;

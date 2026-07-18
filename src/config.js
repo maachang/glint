@@ -148,9 +148,20 @@
     const DEFAULT_LOG_FILE = "logout";
     const DEFAULT_LOG_LEVEL = "info";
 
+    /**
+     * 接続先の種別.
+     *  - "llamacpp": llama.cpp サーバー (GET /health によるヘルスチェック対応).
+     *  - "openai":   OpenAI / OpenAI互換API (ルーターモード等). ヘルスチェック用の
+     *                共通エンドポイントが無いため、ヘルスチェックは行わず常に healthy 扱いとする.
+     * glint.json で接続先エントリに "apiType" を指定しない場合は "llamacpp" として扱う
+     * (= 既存の llama.cpp 運用との後方互換).
+     */
+    const API_TYPE_LLAMACPP = "llamacpp";
+    const API_TYPE_OPENAI = "openai";
+
     // ═══════════════════════════════════════════════════════════════
     // LlamaCppInfo
-    //   llama.cpp サーバー 1 台分の接続情報を保持する値オブジェクト.
+    //   接続先サーバー 1 台 (または1モデル) 分の接続情報を保持する値オブジェクト.
     // ═══════════════════════════════════════════════════════════════
     class LlamaCppInfo {
         /**
@@ -159,8 +170,14 @@
          *                                  1 = 埋め込み (LLAMA_CPP_TYPE_EMBEDDING)
          * @param {string} baseUrl          接続先ベース URL (例: 'http://192.168.1.10:8080')
          * @param {number} [maxConnectCount] このサーバーへの同時接続数上限.
+         * @param {string} [model]          リクエストボディに含める "model" 名.
+         *                                  未指定の場合は body に model を含めない
+         *                                  (llama.cpp の単一モデル運用と後方互換).
+         * @param {string} [apiKey]         Authorization: Bearer ヘッダーに使うAPIキー.
+         * @param {string} [apiType]        "llamacpp" (既定) または "openai".
+         *                                  "openai" の場合はヘルスチェックを行わない.
          */
-        constructor(llamaType, baseUrl, maxConnectCount) {
+        constructor(llamaType, baseUrl, maxConnectCount, model, apiKey, apiType) {
             /** @type {number} 0=推論, 1=埋め込み, -1=不明 */
             this.llamaType = llamaType !== undefined ? llamaType : -1;
             /** @type {string} ベース URL */
@@ -172,6 +189,18 @@
                 maxConnectCount !== undefined && maxConnectCount > 0
                     ? maxConnectCount
                     : DEFAULT_MAX_CONNECT_COUNT;
+            /** @type {string|null} リクエストボディに含める model 名 (未指定時は null) */
+            this.model = model || null;
+            /** @type {string|null} Authorization ヘッダーに使うAPIキー (未指定時は null) */
+            this.apiKey = apiKey || null;
+            /** @type {string} "llamacpp" または "openai" */
+            this.apiType = apiType || API_TYPE_LLAMACPP;
+            /**
+             * @type {boolean} ヘルスチェック対応可否.
+             * "llamacpp" のみ GET /health に対応している前提のため、それ以外は
+             * ヘルスチェックを行わず常に healthy 扱いにする (connectMan.js が参照).
+             */
+            this.supportsHealthCheck = this.apiType === API_TYPE_LLAMACPP;
             /** @type {boolean} ヘルスチェック結果 (connectMan が更新する) */
             this.healthy = true;
             /** @type {number} エラーが継続して発生し始めた時刻 (未エラー: -1) */
@@ -210,14 +239,15 @@
     /**
      * 設定 JSON の 1 エントリから LlamaCppInfo を生成する内部関数.
      *
-     * @param  {Object} map   { url: '...', maxConnectCount: ... } 形式のオブジェクト
+     * @param  {Object} map   { url, maxConnectCount, model, apiKey, apiType } 形式のオブジェクト
      * @param  {number} type  LLAMA_CPP_TYPE_INFERENCE / LLAMA_CPP_TYPE_EMBEDDING
      * @param  {number} no    エントリのインデックス (エラーメッセージ用)
-     * @param  {number} defaultMaxConnectCount  未指定時の同時接続数上限.
+     * @param  {Object} defaults  未指定時に使うデフォルト値
+     *   {number} maxConnectCount  {string} [model]  {string} [apiKey]  {string} [apiType]
      * @return {LlamaCppInfo}
      * @throws {Error}        url が空の場合
      */
-    const _getLlamaCppInfo = function (map, type, no, defaultMaxConnectCount) {
+    const _getLlamaCppInfo = function (map, type, no, defaults) {
         const url = Conv.getString(_mapToGetValue(map, "url", "")).trim();
         if (url.length === 0) {
             throw new Error(
@@ -229,9 +259,19 @@
             );
         }
         const maxConnectCount = Conv.getInt(
-            _mapToGetValue(map, "maxConnectCount", defaultMaxConnectCount),
+            _mapToGetValue(map, "maxConnectCount", defaults.maxConnectCount),
         );
-        return new LlamaCppInfo(type, url, maxConnectCount);
+        const model = _mapToGetValue(map, "model", defaults.model);
+        const apiKey = _mapToGetValue(map, "apiKey", defaults.apiKey);
+        const apiType = _mapToGetValue(map, "apiType", defaults.apiType);
+        return new LlamaCppInfo(
+            type,
+            url,
+            maxConnectCount,
+            model,
+            apiKey,
+            apiType,
+        );
     };
 
     /**
@@ -244,17 +284,11 @@
      * @param  {Object}         map   設定 JSON オブジェクト
      * @param  {string}         name  設定キー名 ('embeddingList' / 'inferenceList')
      * @param  {number}         type  LLAMA_CPP_TYPE_INFERENCE / LLAMA_CPP_TYPE_EMBEDDING
-     * @param  {number}         defaultMaxConnectCount  未指定時の同時接続数上限.
+     * @param  {Object}         defaults  各エントリ未指定時に使うデフォルト値
      * @return {LlamaCppInfo[]}
      * @throws {Error} キーが存在しない場合、または値の型が不正な場合
      */
-    const _getLlamaCppInfoList = function (
-        out,
-        map,
-        name,
-        type,
-        defaultMaxConnectCount,
-    ) {
+    const _getLlamaCppInfoList = function (out, map, name, type, defaults) {
         const info = Conv.getMap(map)[name];
         if (info === undefined || info === null) {
             throw new Error(
@@ -265,15 +299,11 @@
         if (Array.isArray(info)) {
             // 複数エントリの場合
             for (var i = 0; i < info.length; i++) {
-                out.push(
-                    _getLlamaCppInfo(info[i], type, i, defaultMaxConnectCount),
-                );
+                out.push(_getLlamaCppInfo(info[i], type, i, defaults));
             }
         } else if (typeof info === "object") {
             // 単一エントリの場合
-            out.push(
-                _getLlamaCppInfo(info, type, 0, defaultMaxConnectCount),
-            );
+            out.push(_getLlamaCppInfo(info, type, 0, defaults));
         } else {
             throw new Error(
                 "llamaCpp destination: " +
@@ -324,6 +354,27 @@
              * 個別指定されていない場合にこの値が使われる.
              */
             this.maxConnectCount = DEFAULT_MAX_CONNECT_COUNT;
+
+            /**
+             * embeddingList / inferenceList の各エントリで "model" が個別指定
+             * されていない場合に使われるデフォルトのモデル名 (未設定: null).
+             * OpenAI / ルーターモード等、モデル指定が必須な接続先向け.
+             */
+            this.model = null;
+
+            /**
+             * embeddingList / inferenceList の各エントリで "apiKey" が個別指定
+             * されていない場合に使われるデフォルトのAPIキー (未設定: null).
+             * 指定時は Authorization: Bearer {apiKey} ヘッダーを送信する.
+             */
+            this.apiKey = null;
+
+            /**
+             * embeddingList / inferenceList の各エントリで "apiType" が個別指定
+             * されていない場合に使われるデフォルトの接続先種別.
+             * "llamacpp" (既定) または "openai" ("openai"はヘルスチェック非対応).
+             */
+            this.apiType = API_TYPE_LLAMACPP;
 
             // ─── fetchタイムアウト ───────────────────────────────────────
             this.fetchTimeout = DEFAULT_FETCH_TIMEOUT;
@@ -531,24 +582,33 @@
          * @param {Object} json  設定内容のオブジェクト
          */
         setConfig(json) {
-            // ─── llama.cpp 接続先 ───────────────────────────────────
-            // 同時接続数上限のデフォルト値 (各接続先エントリ生成前に確定させる).
+            // ─── llama.cpp / OpenAI互換 接続先 ─────────────────────────
+            // 各接続先エントリ未指定時のデフォルト値 (エントリ生成前に確定させる).
             this.maxConnectCount = Conv.getInt(
                 _mapToGetValue(json, "maxConnectCount", this.maxConnectCount),
             );
+            this.model = _mapToGetValue(json, "model", this.model);
+            this.apiKey = _mapToGetValue(json, "apiKey", this.apiKey);
+            this.apiType = _mapToGetValue(json, "apiType", this.apiType);
+            const connectionDefaults = {
+                maxConnectCount: this.maxConnectCount,
+                model: this.model,
+                apiKey: this.apiKey,
+                apiType: this.apiType,
+            };
             _getLlamaCppInfoList(
                 this.embeddingList,
                 json,
                 "embeddingList",
                 LLAMA_CPP_TYPE_EMBEDDING,
-                this.maxConnectCount,
+                connectionDefaults,
             );
             _getLlamaCppInfoList(
                 this.inferenceList,
                 json,
                 "inferenceList",
                 LLAMA_CPP_TYPE_INFERENCE,
-                this.maxConnectCount,
+                connectionDefaults,
             );
             this.healthCheckTiming = Conv.getLong(
                 _mapToGetValue(
@@ -886,6 +946,8 @@
         LlamaCppInfo,
         LLAMA_CPP_TYPE_INFERENCE,
         LLAMA_CPP_TYPE_EMBEDDING,
+        API_TYPE_LLAMACPP,
+        API_TYPE_OPENAI,
         CHUNK_SIZE_TO_OVERLAP_COEFFICIENT,
         chunkSizeToOverlapSize,
         getInstance,

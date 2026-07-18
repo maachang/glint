@@ -1138,6 +1138,8 @@
                 temperature,
                 null,
                 summaryReasoning,
+                ifObj && ifObj.model,
+                ifObj && ifObj.apiKey,
             );
             // debug.
             console.debug(
@@ -1223,7 +1225,12 @@
                     topIndex = topIndex.substring(0, chunkLen);
                 }
                 chunkAllLen++;
-                emb = await LlamaCpp.getEmbedding(embBaseUrl, topIndex);
+                emb = await LlamaCpp.getEmbedding(
+                    embBaseUrl,
+                    topIndex,
+                    embObj && embObj.model,
+                    embObj && embObj.apiKey,
+                );
                 chunkList.push(
                     new VectorChunk(
                         topIndex,
@@ -1239,7 +1246,12 @@
             console.debug("start.getEmbedding(" + chunkLen + ")");
             for (i = 0; i < chunkLen; i++) {
                 chkTxt = chunkTextList[i];
-                emb = await LlamaCpp.getEmbedding(embBaseUrl, chkTxt);
+                emb = await LlamaCpp.getEmbedding(
+                    embBaseUrl,
+                    chkTxt,
+                    embObj && embObj.model,
+                    embObj && embObj.apiKey,
+                );
                 chunkList.push(
                     new VectorChunk(
                         chkTxt,
@@ -1530,7 +1542,12 @@
             let i, semb, resLen, j;
             for (i = 0; i < len; i++) {
                 // クエリチャンクを埋め込みベクトルに変換
-                semb = await LlamaCpp.getEmbedding(embBaseUrl, chunks[i]);
+                semb = await LlamaCpp.getEmbedding(
+                    embBaseUrl,
+                    chunks[i],
+                    embObj && embObj.model,
+                    embObj && embObj.apiKey,
+                );
                 // VectorGroup からベクトルに近い上位 length 件を取得
                 resLen = vg.searchEmbedding(ary, semb);
                 resLen = resLen > length ? length : resLen;
@@ -1754,6 +1771,8 @@
                 temperature,
                 null,
                 ragReasoning,
+                ifObj && ifObj.model,
+                ifObj && ifObj.apiKey,
             );
             // AI回答の文字列に</think>が設定されている場合.
             // この文字以降のものだけを採用する.
