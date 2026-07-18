@@ -22,36 +22,40 @@
 
     // サマリーシステムプロンプト (日本語版).
     const SUMMARY_REQUEST_SYSTEM_PROMPT_JA = `
-あなたは ** 日本語のプロの編集者 ** で文書の分類(タグ)・カテゴリ・要約(サマリー)を編集する専門家です。ユーザーから提示される「タイトルと参考文書」に従って回答してください。
-####「タグ」は「カテゴリ」を更に固有定義化した「１つのジャンル」で表現してください。たとえば \`プログラム\` や \`生活\` や \`裁判\` や \`アウトドア\` のようにジャンル的なもので。
-####「カテゴリ」は「サマリー」より簡潔に「1つのワード」「最大でも体言止めの短いフレーズで」「内容を最も象徴する『名詞』のみ」で表現してください。
-####「サマリー」は参考文書内容として、RAGが二次利用できる形「文書内容の要点をまとめ、AIが理解しやすい内容」でまとめてください。
+あなたは \`日本語のプロの編集者\` で文書を編集する専門家です.
 
-## 回答形式
-以下のように tagとcategoryは json format 出力対応（JSON.parseが行える形式）を必ず厳守で
-※ 注意: 必ず *** ~~~json *** で json出力部分を囲う事を前提に「回答形式」の出力を行うこと
+[AI生成ルール]
+- ユーザーから提示される \`[タイトル]\` と \`[参考文書]\` に従って、文書の分類(タグ)・カテゴリ・要約(サマリー)を作成します.
+  - サマリー: \`対象のタイトルと参考文書\` を適切な長さに要約して、RAGが二次利用できる形で文書内容の要点をまとめ、AIが理解しやすい内容を生成します.
+  - カテゴリ: \`サマリー\` より簡潔に「1つのワードで当該文書が区分できる単語」を生成します(複数定義可能).
+  - タグ: \`カテゴリ\` より大きな分類となる「文書を特定できる分類」を1つだけ生成します. たとえば \`プログラム\` や \`生活\` や \`裁判\` や \`アウトドア\` のようにジャンル的なもので表現してください.
 
-~~~json
+[回答形式]
+以下のように \`tag\` と \`category\` と \`summary\` は json format 出力対応（JSON.parseが行える形式）.
+※ 注意: 必ず *** \`\`\`json *** で json出力部分を囲う事を前提に「回答形式」の出力を行うこと.
+※ \`tag\` は文字列1つのみ、\`category\` は複数指定可能な配列で出力すること.
+
+\`\`\`json
 {
-"tag":（タグ内容: Array）,
-"category":（カテゴリ内容: Array）,
+  "tag":（タグ内容: String, 1つのみ）,
+  "category":（カテゴリ内容: Array）,
+  "summary":（サマリー内容: String）
 }
-~~~
+\`\`\`
 
-（サマリー内容）
+回答内容は、必ず日本語で行うことを厳守.
 `.trim();
 
     // サマリーユーザプロンプト (日本語版).
     const SUMMARY_REQUEST_USER_PROMPT_JA = `
-## タイトル
+[タイトル]
 {{fileName}}
 
-## 参考文書
+[参考文書]
 {{text}}
 
 ---
-それでは指示された【回答形式】を厳守で日本語(必須)で回答を開始してください。
-回答：
+提示された \`[回答形式]\` を厳守して日本語で回答を開始してください.
 `.trim();
 
     // RAGシステムプロンプト (日本語版).
@@ -101,38 +105,40 @@
 
     // サマリーシステムプロンプト (英語版・実使用).
     const SUMMARY_REQUEST_SYSTEM_PROMPT_EN = `
-You are a professional Japanese editor, an expert at classifying documents into a Tag and Category, and writing a Summary. Follow the "Title and Reference Document" provided by the user.
-#### "Tag": a single genre-level classification, more generic than "Category". For example: \`Program\`, \`Life\`, \`Lawsuit\`, \`Outdoor\`, etc.
-#### "Category": more concise than the Summary — a single word, or at most a short noun-ending phrase, expressing the single most representative noun of the content.
-#### "Summary": summarize the reference document so it can be reused by a RAG system — a concise, AI-readable summary capturing the key points of the entire document.
+You are a professional Japanese editor, an expert in editing documents.
 
-## Answer Format
-Output "tag" and "category" strictly as valid JSON (must be parsable by JSON.parse), formatted exactly as below.
-Note: you MUST wrap the JSON portion with \`~~~json\` / \`~~~\` fences exactly as shown before producing the Answer Format output.
+[AI Generation Rules]
+- Based on the "[Title]" and "[Reference Document]" provided by the user, create a document classification (Tag), Category, and Summary.
+  - Summary: summarize the target title and reference document to an appropriate length, capturing the key points so it can be reused by a RAG system and is easy for an AI to understand.
+  - Category: more concise than the Summary — generate "a single word that classifies the document" (multiple values allowed).
+  - Tag: a broader classification than Category — generate only ONE "genre-level classification that identifies the document". For example: \`Program\`, \`Life\`, \`Lawsuit\`, \`Outdoor\`, etc.
 
-~~~json
+[Answer Format]
+Output "tag", "category", and "summary" strictly as valid JSON (must be parsable by JSON.parse), formatted exactly as below.
+Note: you MUST wrap the JSON portion with \`\`\`json fences exactly as shown before producing the Answer Format output.
+Note: \`tag\` must be a single String (only one value); \`category\` must be an Array (multiple values allowed).
+
+\`\`\`json
 {
-"tag": (tag content: Array),
-"category": (category content: Array),
+  "tag": (tag content: String, only one),
+  "category": (category content: Array),
+  "summary": (summary content: String)
 }
-~~~
+\`\`\`
 
-(summary content)
-
-IMPORTANT: Write the tag/category values and the summary content in Japanese.
+Always write the answer content in Japanese.
 `.trim();
 
     // サマリーユーザプロンプト (英語版・実使用).
     const SUMMARY_REQUEST_USER_PROMPT_EN = `
-## Title
+[Title]
 {{fileName}}
 
-## Reference Document
+[Reference Document]
 {{text}}
 
 ---
-Now, strictly follow the specified Answer Format and begin your answer in Japanese (required).
-Answer:
+Strictly follow the specified "[Answer Format]" and begin your answer in Japanese.
 `.trim();
 
     // RAGシステムプロンプト (英語版・実使用).

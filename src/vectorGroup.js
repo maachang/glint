@@ -1001,19 +1001,19 @@
             return null;
         }
         try {
-            // json文字列を取得.
+            // json文字列を取得 (tag, category, summary を含む).
             let jsonTxt = sumTxt.substring(7, ep).trim();
-            // サマリー文字列を取得.
-            let summary = sumTxt.substring(ep + 3).trim();
 
             // jsonパース.
             const jsonValue = Conv.parseJson(jsonTxt);
             // サマリー内容の整形.
-            summary = Conv.stripMarkdown(summary); // マークダウン除去
-            summary = Conv.exclusionText(summary); // 全角スペース・\r・\t 除去
-            summary = Conv.trimEnterText(summary); // 余分な空行除去
-
-            jsonValue["summary"] = summary;
+            if (typeof jsonValue["summary"] === "string") {
+                let summary = jsonValue["summary"];
+                summary = Conv.stripMarkdown(summary); // マークダウン除去
+                summary = Conv.exclusionText(summary); // 全角スペース・\r・\t 除去
+                summary = Conv.trimEnterText(summary); // 余分な空行除去
+                jsonValue["summary"] = summary;
+            }
             return jsonValue;
         } catch (e) {
             console.warn("#jsonパースに失敗: " + sumTxt);
