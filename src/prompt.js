@@ -83,6 +83,7 @@
 2. [文書名](文書URL)
 ---
 ※ 実際に文書名に紐づくサマリーや質問類似箇所を引用した文書のみを \`【参照文書一覧】\` に列挙してください.
+※ また \`[文書名](文書URL)\` は「マークダウンのURLリンク」で記載してください.
 
 [回答生成2]
 ---
@@ -173,6 +174,7 @@ Depending on whether reference documents were adopted when constructing the answ
 2. [document name](document URL)
 ---
 Note: only list a document under 【参照文書一覧】 if its summary or a similar excerpt tied to that document name was actually cited.
+Note: write \`[document name](document URL)\` as an actual Markdown URL link.
 
 [Answer Format 2]
 ---
