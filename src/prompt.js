@@ -55,7 +55,7 @@
 {{text}}
 
 ---
-提示された \`[回答形式]\` を厳守して日本語で回答を開始してください.
+提示された \`[AI生成ルール・回答形式]\` を厳守して日本語で回答を開始してください.
 `.trim();
 
     // RAGシステムプロンプト (日本語版).
@@ -96,14 +96,14 @@
 
     // RAGユーザプロンプト (日本語版).
     const RAG_REQUEST_USER_PROMPT_JA = `
-## 参考文書
+[参考文書]
 {{chunkMessages}}
 
-## 質問
+[質問]
 {{message}}
 
 ---
-それでは指示された【回答形式】のルールを厳守で日本語で回答を開始してください。
+それでは指示された \`[AI生成ルール]\` を厳守で日本語で回答を開始してください。
 `.trim();
 
     // ═══════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ Always write the answer content in Japanese.
 {{text}}
 
 ---
-Strictly follow the specified "[Answer Format]" and begin your answer in Japanese.
+Strictly follow the specified "[AI Generation Rules / Answer Format]" and begin your answer in Japanese.
 `.trim();
 
     // RAGシステムプロンプト (英語版・実使用).
@@ -186,15 +186,14 @@ Always write the answer content in Japanese.
 
     // RAGユーザプロンプト (英語版・実使用).
     const RAG_REQUEST_USER_PROMPT_EN = `
-## Reference Document
+[Reference Document]
 {{chunkMessages}}
 
-## Question
+[Question]
 {{message}}
 
 ---
-Now, strictly follow the specified Answer Format and begin your answer in Japanese.
-Answer:
+Now, strictly follow the specified "[AI Generation Rules]" and begin your answer in Japanese.
 `.trim();
 
     /**
