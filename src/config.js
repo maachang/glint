@@ -32,6 +32,7 @@
 
     const fs = require("fs");
     const Conv = require("./conv");
+    const ConnectMan = require("./connectMan");
 
     // ═══════════════════════════════════════════════════════════════
     // デフォルト定数(Const).
@@ -132,24 +133,41 @@
     /** デフォルトの設定ファイル名 */
     const DEFAULT_CONFIG_FILE = "glint.json";
 
+    /**
+     * llama.cpp サーバー1台あたりの同時接続数上限のデフォルト値.
+     * glint.json の "maxConnectCount" (グローバル) または各接続先エントリの
+     * "maxConnectCount" (個別上書き) で変更可能.
+     */
+    const DEFAULT_MAX_CONNECT_COUNT = 8;
+
     // ═══════════════════════════════════════════════════════════════
     // LlamaCppInfo
     //   llama.cpp サーバー 1 台分の接続情報を保持する値オブジェクト.
     // ═══════════════════════════════════════════════════════════════
     class LlamaCppInfo {
         /**
-         * @param {number} llamaType  サーバー種別
-         *                            0 = 推論 (LLAMA_CPP_TYPE_INFERENCE)
-         *                            1 = 埋め込み (LLAMA_CPP_TYPE_EMBEDDING)
-         * @param {string} baseUrl    接続先ベース URL (例: 'http://192.168.1.10:8080')
+         * @param {number} llamaType        サーバー種別
+         *                                  0 = 推論 (LLAMA_CPP_TYPE_INFERENCE)
+         *                                  1 = 埋め込み (LLAMA_CPP_TYPE_EMBEDDING)
+         * @param {string} baseUrl          接続先ベース URL (例: 'http://192.168.1.10:8080')
+         * @param {number} [maxConnectCount] このサーバーへの同時接続数上限.
          */
-        constructor(llamaType, baseUrl) {
+        constructor(llamaType, baseUrl, maxConnectCount) {
             /** @type {number} 0=推論, 1=埋め込み, -1=不明 */
             this.llamaType = llamaType !== undefined ? llamaType : -1;
             /** @type {string} ベース URL */
             this.baseUrl = baseUrl !== undefined ? baseUrl : null;
             // 利用中カウント.
             this.useCount = 0;
+            /** @type {number} 同時接続数上限 (これに達したら acquire 対象から除外) */
+            this.maxConnectCount =
+                maxConnectCount !== undefined && maxConnectCount > 0
+                    ? maxConnectCount
+                    : DEFAULT_MAX_CONNECT_COUNT;
+            /** @type {boolean} ヘルスチェック結果 (connectMan が更新する) */
+            this.healthy = true;
+            /** @type {number} エラーが継続して発生し始めた時刻 (未エラー: -1) */
+            this.firstErrorTime = -1;
         }
 
         // 利用を開始する.
@@ -184,13 +202,14 @@
     /**
      * 設定 JSON の 1 エントリから LlamaCppInfo を生成する内部関数.
      *
-     * @param  {Object} map   { url: '...' } 形式のオブジェクト
+     * @param  {Object} map   { url: '...', maxConnectCount: ... } 形式のオブジェクト
      * @param  {number} type  LLAMA_CPP_TYPE_INFERENCE / LLAMA_CPP_TYPE_EMBEDDING
      * @param  {number} no    エントリのインデックス (エラーメッセージ用)
+     * @param  {number} defaultMaxConnectCount  未指定時の同時接続数上限.
      * @return {LlamaCppInfo}
      * @throws {Error}        url が空の場合
      */
-    const _getLlamaCppInfo = function (map, type, no) {
+    const _getLlamaCppInfo = function (map, type, no, defaultMaxConnectCount) {
         const url = Conv.getString(_mapToGetValue(map, "url", "")).trim();
         if (url.length === 0) {
             throw new Error(
@@ -201,7 +220,10 @@
                     ") is not set.",
             );
         }
-        return new LlamaCppInfo(type, url);
+        const maxConnectCount = Conv.getInt(
+            _mapToGetValue(map, "maxConnectCount", defaultMaxConnectCount),
+        );
+        return new LlamaCppInfo(type, url, maxConnectCount);
     };
 
     /**
@@ -214,10 +236,17 @@
      * @param  {Object}         map   設定 JSON オブジェクト
      * @param  {string}         name  設定キー名 ('embeddingList' / 'inferenceList')
      * @param  {number}         type  LLAMA_CPP_TYPE_INFERENCE / LLAMA_CPP_TYPE_EMBEDDING
+     * @param  {number}         defaultMaxConnectCount  未指定時の同時接続数上限.
      * @return {LlamaCppInfo[]}
      * @throws {Error} キーが存在しない場合、または値の型が不正な場合
      */
-    const _getLlamaCppInfoList = function (out, map, name, type) {
+    const _getLlamaCppInfoList = function (
+        out,
+        map,
+        name,
+        type,
+        defaultMaxConnectCount,
+    ) {
         const info = Conv.getMap(map)[name];
         if (info === undefined || info === null) {
             throw new Error(
@@ -228,11 +257,15 @@
         if (Array.isArray(info)) {
             // 複数エントリの場合
             for (var i = 0; i < info.length; i++) {
-                out.push(_getLlamaCppInfo(info[i], type, i));
+                out.push(
+                    _getLlamaCppInfo(info[i], type, i, defaultMaxConnectCount),
+                );
             }
         } else if (typeof info === "object") {
             // 単一エントリの場合
-            out.push(_getLlamaCppInfo(info, type, 0));
+            out.push(
+                _getLlamaCppInfo(info, type, 0, defaultMaxConnectCount),
+            );
         } else {
             throw new Error(
                 "llamaCpp destination: " +
@@ -242,26 +275,6 @@
             );
         }
         return out;
-    };
-
-    // 最適なLlamaCppサーバを返却.
-    const _getOptimalLlamaCppInfo = function (list) {
-        let ret = null;
-        if (list.length == 1) {
-            ret = list[0];
-        } else {
-            const len = list.length;
-            for (let i = 0; i < len; i++) {
-                if (ret == null) {
-                    ret = list[i];
-                } else if (ret.useCount > list[i].useCount) {
-                    ret = list[i];
-                }
-            }
-        }
-        // 一番アクセス数の少ないサーバを返却.
-        ret.startConnect();
-        return ret;
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -296,6 +309,13 @@
 
             /** llama.cpp ヘルスチェック間隔 (ミリ秒) */
             this.healthCheckTiming = DEFAULT_HEALTH_CHECK_TIMING;
+
+            /**
+             * llama.cpp サーバー1台あたりの同時接続数上限のデフォルト値.
+             * embeddingList / inferenceList の各エントリで "maxConnectCount" が
+             * 個別指定されていない場合にこの値が使われる.
+             */
+            this.maxConnectCount = DEFAULT_MAX_CONNECT_COUNT;
 
             // ─── fetchタイムアウト ───────────────────────────────────────
             this.fetchTimeout = DEFAULT_FETCH_TIMEOUT;
@@ -479,17 +499,23 @@
          */
         setConfig(json) {
             // ─── llama.cpp 接続先 ───────────────────────────────────
+            // 同時接続数上限のデフォルト値 (各接続先エントリ生成前に確定させる).
+            this.maxConnectCount = Conv.getInt(
+                _mapToGetValue(json, "maxConnectCount", this.maxConnectCount),
+            );
             _getLlamaCppInfoList(
                 this.embeddingList,
                 json,
                 "embeddingList",
                 LLAMA_CPP_TYPE_EMBEDDING,
+                this.maxConnectCount,
             );
             _getLlamaCppInfoList(
                 this.inferenceList,
                 json,
                 "inferenceList",
                 LLAMA_CPP_TYPE_INFERENCE,
+                this.maxConnectCount,
             );
             this.healthCheckTiming = Conv.getLong(
                 _mapToGetValue(
@@ -601,11 +627,11 @@
         /**
          * 推論サーバーリストから利用可能な baseUrl を 1 件返す.
          *
-         * 現状はリストの先頭を返す簡易実装.
-         * 将来的にはラウンドロビンやヘルスチェック結果による選択に拡張できる.
+         * healthy かつ 同時接続数上限未満のサーバの中から、最も useCount の
+         * 少ないサーバを ConnectMan 経由で選択する.
          *
          * @return {LlamaCppInfo} 推論サーバーの baseUrl
-         * @throws {Error}        inferenceList が空の場合
+         * @throws {Error}        inferenceList が空、または利用可能なサーバが無い場合
          */
         getInferenceURL() {
             if (this.inferenceList.length === 0) {
@@ -614,14 +640,17 @@
                 );
             }
             // 対象LlamaCppInfoサーバ情報を返却.
-            return _getOptimalLlamaCppInfo(this.inferenceList);
+            return ConnectMan.acquire(this.inferenceList);
         }
 
         /**
          * 埋め込みサーバーリストから利用可能な baseUrl を 1 件返す.
          *
+         * healthy かつ 同時接続数上限未満のサーバの中から、最も useCount の
+         * 少ないサーバを ConnectMan 経由で選択する.
+         *
          * @return {LlamaCppInfo} 埋め込みサーバーの baseUrl
-         * @throws {Error}        embeddingList が空の場合
+         * @throws {Error}        embeddingList が空、または利用可能なサーバが無い場合
          */
         getEmbeddingURL() {
             if (this.embeddingList.length === 0) {
@@ -630,7 +659,7 @@
                 );
             }
             // 対象LlamaCppInfoサーバ情報を返却.
-            return _getOptimalLlamaCppInfo(this.embeddingList);
+            return ConnectMan.acquire(this.embeddingList);
         }
     }
 

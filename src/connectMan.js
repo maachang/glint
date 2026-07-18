@@ -3,92 +3,102 @@
 // 他のプロセスがアクセスする事で「返却時間が遅くなった」り「メモリ枯渇」
 // これを防ぐための「管理」を行います.
 //
+// AIメモ:
+// - config.js の LlamaCppInfo (embeddingList/inferenceList の各要素) を直接
+//   受け取って選択・状態更新する. LlamaCppInfo と別に並行管理用のクラスを
+//   持つと二重管理で不整合の元になるため、あえて independent なクラスは持たない.
+// - config.js から require されるため、循環参照を避けるためにこのファイルは
+//   config.js を require しない (healthCheckTiming 等は呼び出し元から
+//   パラメータとして受け取る).
+//
 (function () {
     "use strict";
 
     /**
-     * １つのllama.cppサーバ接続管理情報.
-     *  - {string} host           (key)接続先ホスト名 + ポート番号.
-     *  - {number} connectCount   OpenAIのAPI準拠したサーバ に接続する接続数(32).
-     *  - {number} lastTime       最終接続時間(未接続: -1)(64).
-     *  - {number} firstErrorTime 接続エラーが発生した最初の時間(未エラー: -1)(64)
+     * list の中から「healthy かつ 同時接続数上限未満」なサーバのうち、
+     * useCount が最も少ないものを選択して返す.
+     *
+     * 該当するサーバが1つも無い場合は例外を throw する
+     * (呼び出し元で 503 相当のエラーとして扱うことを想定).
+     *
+     * @param  {LlamaCppInfo[]} list  config.js の embeddingList / inferenceList.
+     * @return {LlamaCppInfo}         選択されたサーバ情報 (startConnect() 済み).
+     * @throws {Error} 利用可能なサーバが1つも無い場合.
      */
-    class LlamaCppStatus {
-        /**
-         * コンストラクタ.
-         * @param {string} host 接続先ホスト名 + ポート番号を設定.
-         */
-        constructor(host) {
-            this.host = host;
-            this.connectCount = 0;
-            this.lastTime = -1;
-            this.firstErrorTime = -1;
-        }
-        /**
-         * 接続開始.
-         * @returns {boolean} trueが返却されます.
-         */
-        startConnect() {
-            this.connectCount++;
-            this.lastTime = Date.now();
-            return true;
-        }
-        /**
-         * 接続終了.
-         * @returns {boolean} trueが返却されます.
-         */
-        endConnect() {
-            this.connectCount--;
-            this.lastTime = Date.now();
-            return true;
-        }
-        /**
-         * 接続エラー時に呼び出し.
-         * @retruns {boolean} 接続エラーが初めて検出された場合 true 返却.
-         */
-        errorConnect() {
-            if (firstErrorTime == -1) {
-                firstErrorTime = Date.now();
-                this.lastTime = Date.now();
-                return true;
+    const acquire = function (list) {
+        const len = list.length;
+        let ret = null;
+        for (let i = 0; i < len; i++) {
+            const info = list[i];
+            // healthy でない、または同時接続数上限に達しているサーバは対象外.
+            if (info.healthy === false) {
+                continue;
             }
-            return false;
-        }
-        /**
-         * 接続成功の場合の呼び出し.
-         * @retruns {boolean} 接続エラー後初めて検出された場合 true 返却.
-         */
-        successConnect() {
-            if (firstErrorTime != -1) {
-                firstErrorTime = -1;
-                this.lastTime = Date.now();
-                return true;
+            if (info.useCount >= info.maxConnectCount) {
+                continue;
             }
-            return false;
+            if (ret == null || ret.useCount > info.useCount) {
+                ret = info;
+            }
         }
-    }
+        if (ret == null) {
+            throw new Error(
+                "No available llamaCpp server (all servers are unhealthy or at max connections).",
+            );
+        }
+        ret.startConnect();
+        return ret;
+    };
 
     /**
-     * ヘルスチェック.
-     * @param {host} `接続先ホスト名:ポート番号` を設定します.
-     * @returns {Promise<boolean>} true の場合ヘルスチェック成功です.
+     * 指定サーバに対してヘルスチェック (GET /health) を実施し、
+     * info.healthy を更新する.
+     *
+     * @param  {LlamaCppInfo} info  対象サーバ情報.
+     * @return {Promise<boolean>}   ヘルスチェック結果 (true=正常).
      */
-    const _health = async function (host) {
+    const checkHealth = async function (info) {
+        let baseUrl = info.baseUrl;
         if (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.slice(0, -1);
         }
         try {
-            await fetch(host + "/health");
-            // 接続成功.
-            return true;
+            const res = await fetch(baseUrl + "/health");
+            info.healthy = res.ok;
         } catch (e) {
-            // 接続失敗.
-            return false;
+            info.healthy = false;
         }
+        return info.healthy;
+    };
+
+    /**
+     * list に含まれる全サーバへの定期ヘルスチェックを開始する.
+     *
+     * @param  {LlamaCppInfo[]} list        ヘルスチェック対象のサーバ一覧.
+     * @param  {number}         intervalMs  チェック間隔 (ミリ秒).
+     * @return {NodeJS.Timeout}             stopHealthCheck() に渡すハンドル.
+     */
+    const startHealthCheck = function (list, intervalMs) {
+        return setInterval(function () {
+            const len = list.length;
+            for (let i = 0; i < len; i++) {
+                // 個々のチェックは非同期で並行実行 (待ち合わせ不要).
+                checkHealth(list[i]);
+            }
+        }, intervalMs);
+    };
+
+    /**
+     * startHealthCheck() で開始した定期ヘルスチェックを停止する.
+     *
+     * @param {NodeJS.Timeout} handle  startHealthCheck() の戻り値.
+     */
+    const stopHealthCheck = function (handle) {
+        clearInterval(handle);
     };
 
     // ========================================================
     // モジュールエクスポート
     // ========================================================
-    module.exports = {};
+    module.exports = { acquire, checkHealth, startHealthCheck, stopHealthCheck };
 })();
