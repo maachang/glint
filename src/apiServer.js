@@ -35,7 +35,6 @@
     const Config = require("./config.js");
     const ConnectMan = require("./connectMan.js");
     const vg = require("./vectorGroup.js");
-    const util = require("./util.js");
 
     // デフォルトの待受ポート.
     const DEFAULT_PORT = 3000;
@@ -160,6 +159,10 @@
         // レスポンスは即時に返し、実処理はバックグラウンドで継続する.
         _sendJson(res, 202, { jobId, status: "pending" });
 
+        console.info(
+            "[job:" + jobId + "] start putTextFileToVectorGroup: group=" +
+                groupName + " fileName=" + fileName,
+        );
         try {
             await vg.putTextFileToVectorGroup(
                 groupName,
@@ -169,8 +172,9 @@
                 body.options,
             );
             _updateJob(jobId, "success");
+            console.info("[job:" + jobId + "] success");
         } catch (e) {
-            util.debugOut("#putTextFileToVectorGroup error: " + e.message);
+            console.error("[job:" + jobId + "] error: " + e.message);
             _updateJob(jobId, "error", e.message);
         }
     };
@@ -323,6 +327,7 @@
             return;
         }
 
+        console.warn("Not found: " + req.method + " " + pathname);
         _sendError(res, 404, "Not found: " + req.method + " " + pathname);
     };
 
@@ -345,6 +350,14 @@
                 : Number(process.env.PORT) || DEFAULT_PORT;
 
         const conf = Config.getInstance();
+
+        // ローカルログ出力を有効化する.
+        // localLog.js は require した時点でグローバルの console を置き換えるため、
+        // apiServer.js が実際に起動される場合のみ有効になるよう start() 内で require する
+        // (vectorGroup.js 等をライブラリとして使うだけの場合に console を汚さないため).
+        const LocalLog = require("./localLog.js");
+        LocalLog.setting(conf.getLogSetting());
+
         // llama.cppサーバ群への定期ヘルスチェックを開始する.
         // healthCheckTiming は BigInt で保持されているため Number に変換する.
         const healthCheckTiming = Number(conf.healthCheckTiming);
@@ -352,8 +365,17 @@
         ConnectMan.startHealthCheck(conf.inferenceList, healthCheckTiming);
 
         const server = http.createServer((req, res) => {
+            const tm = Date.now();
+            const method = req.method;
+            const pathname = req.url.split("?")[0];
+            res.on("finish", () => {
+                console.info(
+                    method + " " + pathname + " " + res.statusCode +
+                        " " + (Date.now() - tm) + "msec",
+                );
+            });
             _route(req, res).catch((e) => {
-                util.debugOut("#apiServer error: " + e.message);
+                console.error("#apiServer error: " + e.message);
                 _sendError(res, 503, e.message);
             });
         });

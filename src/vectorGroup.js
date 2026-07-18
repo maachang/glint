@@ -671,7 +671,7 @@
             VECTOR_GROUP_FILE_EXTENSION,
         );
         fs.writeFileSync(fileName, _saveGroupToBinary(chunks));
-        util.debugOut("_saveGroup-fileName: " + fileName);
+        console.debug("_saveGroup-fileName: " + fileName);
     };
 
     /**
@@ -797,7 +797,7 @@
             VECTOR_SUMMARY_FILE_EXTENSION,
         );
         fs.writeFileSync(fileName, _saveSummaryToBinary(summary));
-        util.debugOut("_saveSummary-fileName: " + fileName);
+        console.debug("_saveSummary-fileName: " + fileName);
     };
 
     /**
@@ -1129,7 +1129,7 @@
 
             let tm = Date.now();
             // debug.
-            util.debugOut("start.getInferenceMessage(" + textFileName + ")");
+            console.debug("start.getInferenceMessage(" + textFileName + ")");
             const sumPrompt = Prompt.getSummaryRequest(textDocName, text);
             let sumTxt = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
@@ -1140,7 +1140,7 @@
                 summaryReasoning,
             );
             // debug.
-            util.debugOut(
+            console.debug(
                 "end.getInferenceMessage: " + (Date.now() - tm) + " msec",
             );
 
@@ -1189,9 +1189,9 @@
             }
 
             // debug.
-            util.debugOut("サマリー結果: \n" + sumTxt);
-            util.debugOut("topIndex: " + topIndex);
-            util.debugOut("\n");
+            console.debug("サマリー結果: \n" + sumTxt);
+            console.debug("topIndex: " + topIndex);
+            console.debug("\n");
 
             // サマリーに文書を登録 (既存の場合は上書き)
             const summaryValue = new VSummaryValue(sumTxt, textUrl);
@@ -1236,7 +1236,7 @@
             }
 
             // 組み込みインデックスでVectorChunkを作成.
-            util.debugOut("start.getEmbedding(" + chunkLen + ")");
+            console.debug("start.getEmbedding(" + chunkLen + ")");
             for (i = 0; i < chunkLen; i++) {
                 chkTxt = chunkTextList[i];
                 emb = await LlamaCpp.getEmbedding(embBaseUrl, chkTxt);
@@ -1249,9 +1249,9 @@
                         emb,
                     ),
                 );
-                //util.debugOut("[" + i + "]");
+                //console.debug("[" + i + "]");
             }
-            util.debugOut(
+            console.debug(
                 "end.getEmbedding(" +
                     chunkLen +
                     "): " +
@@ -1309,12 +1309,12 @@
                 // 更新されたチャンク群とサマリーをそれぞれ保存
                 _saveGroup(groupName, list, dirPath);
                 _saveSummary(groupName, summary, dirPath);
-                util.debugOut("ファイル出力完了");
+                console.debug("ファイル出力完了");
             } finally {
                 // VectorGroupファイル更新終了.
                 sync.unlock(groupName, lockUk);
             }
-            util.debugOut("ファイル出力完了[END]");
+            console.debug("ファイル出力完了[END]");
         } finally {
             // 利用終了.
             if (embObj != null) {

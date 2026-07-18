@@ -140,6 +140,14 @@
      */
     const DEFAULT_MAX_CONNECT_COUNT = 8;
 
+    /**
+     * ローカルログ (localLog.js) の出力先デフォルト値.
+     * glint.json の "logDir" / "logFile" / "logLevel" で変更可能.
+     */
+    const DEFAULT_LOG_DIR = "./log";
+    const DEFAULT_LOG_FILE = "logout";
+    const DEFAULT_LOG_LEVEL = "info";
+
     // ═══════════════════════════════════════════════════════════════
     // LlamaCppInfo
     //   llama.cpp サーバー 1 台分の接続情報を保持する値オブジェクト.
@@ -396,6 +404,22 @@
              */
             this.lockTimeout = -1;
 
+            /**
+             * ローカルログ (localLog.js) の出力先ディレクトリ.
+             */
+            this.logDir = DEFAULT_LOG_DIR;
+
+            /**
+             * ローカルログ (localLog.js) の出力先ファイル名 (拡張子抜き).
+             */
+            this.logFile = DEFAULT_LOG_FILE;
+
+            /**
+             * ローカルログ (localLog.js) のファイル出力レベル.
+             * trace / debug / info / warn / error / none のいずれか.
+             */
+            this.logLevel = DEFAULT_LOG_LEVEL;
+
             // configファイルをロードしたかのフラグ.
             this.loadConfigFlag = false;
         }
@@ -622,6 +646,31 @@
             this.lockTimeout = Conv.getInt(
                 _mapToGetValue(json, "lockTimeout", this.lockTimeout),
             );
+
+            // ─── ローカルログ ─────────────────────────────
+            this.logDir = Conv.getString(
+                _mapToGetValue(json, "logDir", this.logDir),
+            );
+            this.logFile = Conv.getString(
+                _mapToGetValue(json, "logFile", this.logFile),
+            );
+            this.logLevel = Conv.getString(
+                _mapToGetValue(json, "logLevel", this.logLevel),
+            );
+        }
+
+        /**
+         * localLog.js の setting() にそのまま渡せる形式で
+         * ログ出力設定を返す.
+         *
+         * @return {{dir: string, file: string, level: string}}
+         */
+        getLogSetting() {
+            return {
+                dir: this.logDir,
+                file: this.logFile,
+                level: this.logLevel,
+            };
         }
 
         /**
