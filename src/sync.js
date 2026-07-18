@@ -46,10 +46,22 @@
     /**
      * ロック処理を実施.
      * [*]指定しない場合はコンフィグ値がセットされます.
+     *
+     * AIメモ:
+     * - 以前は「ロック中のプロセスIDが自分自身と同じ場合は待たずに素通りする」
+     *   実装だったが、これは「同一プロセス内で複数の非同期タスクが同じ名前で
+     *   並行して lock() を呼ぶ」ケース（例: apiServer.js が同一グループ名への
+     *   登録リクエストを並行処理する場合）で、本来待つべき別タスクの実行と
+     *   競合してファイル破損を招く不具合があったため削除した.
+     * - 同一プロセス内での「真の再入」（自分がロックを保持したまま同じ名前で
+     *   再度 lock() を呼ぶ）が必要な場合は、呼び出し元でロック無し版の内部関数を
+     *   別途用意して直接呼ぶこと (vectorGroup.js の _loadVectorGroupUnlocked() を参照).
+     *   PIDだけでは「真の再入」と「別タスクの並行呼び出し」を区別できないため.
+     *
      * @param {string} name ロック名を設定します.
      * @param {string} dirName [*]ロックファイル出力先のディレクトリパスを設定します.
      * @param {number} timeout [*]タイムアウト値を設定します(省略時は -1=無限待ち)
-     * @returns {Promise<string|null>} ロックファイル設定内容のユニーク値が返却されます.
+     * @returns {Promise<string>} ロックファイル設定内容のユニーク値が返却されます.
      */
     const lock = async function (name, dirName, timeout) {
         dirName = dirName || conf.getInstance().dirPath;
@@ -100,12 +112,6 @@
                         }
                         continue;
                     }
-                    // ロック中のプロセスIDが同じ場合.
-                    else if (lv.pid == process.pid) {
-                        // 同一プロセスなので、ロックなしで通過.
-                        return null;
-                    }
-
                     // タイムアウトの場合.
                     if (timeout != -1 && Date.now() > tm + timeout) {
                         // タイムアウト例外.
@@ -153,16 +159,8 @@
             );
         }
         // ロックファイル内容と一致しない場合.
+        // (lock() は必ず有効なユニーク値を返すため、通常 uk が null になることはない)
         if (v != uk) {
-            const lv = _getLockFile(null, v);
-            // ただし uk == null で ロックファイルの
-            // プロセスIDが一致する場合は、アンロック処理は成功と見ます.
-            // (この場合はロックファイルは削除しない)
-            if (uk == null && lv != null && lv.pid == process.pid) {
-                // ロックは解除されないが、同一プロセスロック判断で
-                // アンロックはスルーする.
-                return false;
-            }
             throw new Error(
                 "The contents of the lock file do not match(" +
                     dirName +

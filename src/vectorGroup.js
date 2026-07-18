@@ -862,6 +862,35 @@
     };
 
     /**
+     * [private].vgs / .vss ファイルを両方ロードして VectorGroup オブジェクトを返す (ロック無し).
+     *
+     * 呼び出し元が既に sync.lock(groupName) を保持している場合はこちらを直接呼ぶこと.
+     * (putTextFileToVectorGroup() / removeTextFileFromVectorGroup() が該当.
+     *  自身でロックを保持したまま公開版の loadVectorGroup() を呼ぶと再入になり、
+     *  sync.js 側で「同一グループ名への別の同時実行」と区別できなくなるため.)
+     *
+     * @param  {string}      groupName  正規化済みのグループ名 (拡張子なし)
+     * @param  {string}      dirPath    正規化済みのディレクトリパス
+     * @return {VectorGroup}
+     */
+    const _loadVectorGroupUnlocked = function (groupName, dirPath) {
+        const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
+        // .vgs ファイルの更新時刻を取得 (変更検出のために保持する)
+        const fileTime = _getFileTime(dirPath + "/" + vgFileName);
+        const chunks = _loadGroup(groupName, dirPath);
+        const summary = _loadVectorSummary(groupName, dirPath);
+        // cache は省略 → VectorGroup コンストラクタ内で空配列として初期化される
+        return new VectorGroup(
+            groupName,
+            dirPath,
+            vgFileName,
+            fileTime,
+            chunks,
+            summary,
+        );
+    };
+
+    /**
      * .vgs / .vss ファイルを両方ロードして VectorGroup オブジェクトを返す.
      *
      * .vgs のファイル更新時刻も取得して VectorGroup に持たせることで、
@@ -878,24 +907,10 @@
         const pg = _trimPathGroup(dirPath, groupName);
         groupName = pg.groupName;
 
-        const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
-
         // VectorGroupファイル読み込み開始.
         const lockUk = await sync.lock(groupName);
         try {
-            // .vgs ファイルの更新時刻を取得 (変更検出のために保持する)
-            const fileTime = _getFileTime(pg.path + "/" + vgFileName);
-            const chunks = _loadGroup(pg.groupName, pg.path);
-            const summary = _loadVectorSummary(pg.groupName, pg.path);
-            // cache は省略 → VectorGroup コンストラクタ内で空配列として初期化される
-            return new VectorGroup(
-                pg.groupName,
-                pg.path,
-                vgFileName,
-                fileTime,
-                chunks,
-                summary,
-            );
+            return _loadVectorGroupUnlocked(pg.groupName, pg.path);
         } finally {
             // VectorGroupファイル読み込み終了.
             sync.unlock(groupName, lockUk);
@@ -1269,8 +1284,9 @@
                 }
 
                 // 既にVectorGroupファイルが存在する場合.
+                // ※ 既に sync.lock(groupName) を保持しているため、ロック無し版を使用する.
                 if (isFileFlag) {
-                    const vg = await loadVectorGroup(groupName, dirPath);
+                    const vg = _loadVectorGroupUnlocked(groupName, dirPath);
                     list = vg.getChunked().filter(function (ck) {
                         return ck.docName !== textDocName;
                     });
@@ -1363,7 +1379,8 @@
                 );
             }
 
-            const vg = await loadVectorGroup(groupName, dirPath);
+            // ※ 既に sync.lock(groupName) を保持しているため、ロック無し版を使用する.
+            const vg = _loadVectorGroupUnlocked(groupName, dirPath);
             const summary = vg.getSummary();
             let removeFlag = false; // 実際に削除対象が見つかったかのフラグ
 
