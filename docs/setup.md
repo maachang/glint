@@ -160,6 +160,21 @@ PORT=8080 node src/apiServer.js
 
 詳細なAPI仕様は [apiServer.md](./apiServer.md) を参照してください。
 
+### Bunで単一バイナリにコンパイルする場合
+
+[Bun](https://bun.sh/) を使うと、`apiServer.js` を外部依存なしの単一実行バイナリにコンパイルできます。
+
+```sh
+./scripts/build-bun.sh                # ./dist/glint に出力
+./scripts/build-bun.sh ./dist/myapp   # 出力先を指定
+```
+
+**なぜ専用スクリプトが必要か**: `pdf-parse` は内部で `` require(`./pdf.js/${options.version}/build/pdf.js`) `` という動的requireを使っており、Bunの `bun build --compile` は静的解析でバンドル対象を決めるため、これをそのままではバイナリに埋め込めません（コンパイルは成功するが、実行時にPDF登録で `Cannot find module` エラーになる）。`scripts/build-bun.sh` はビルド直前にこの動的requireを固定バージョンの静的requireへ一時的にパッチし、コンパイル完了後に `node_modules` を元の状態へ復元します。
+
+- 前提: `npm install` 済み、かつ `bun` コマンドがインストールされていること
+- `pdf-parse` のバージョンを更新した場合、スクリプト内の `PDF_JS_VERSION` を `node_modules/pdf-parse/lib/pdf-parse.js` の `DEFAULT_OPTIONS.version` と合わせて更新する必要がある
+- 生成されたバイナリは `glint.json` 等の設定ファイル・`vectorStore`・ログ出力先を実行時にファイルシステムから読み書きするため、それらは別途バイナリと同じ実行環境に配置する（コードのみがバイナリに埋め込まれる）
+
 ## 7. トラブルシューティング
 
 | 症状 | 確認事項 |

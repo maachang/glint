@@ -151,6 +151,8 @@ node src/apiServer.js
 PORT=3000 node src/apiServer.js
 ```
 
+[Bun](https://bun.sh/) で単一実行バイナリにコンパイルすることも可能です（`./scripts/build-bun.sh`。詳細は [docs/setup.md](./docs/setup.md#bunで単一バイナリにコンパイルする場合) 参照）。
+
 | メソッド | パス | 説明 |
 |---------|------|------|
 | GET | `/groups` | グループ一覧 |
@@ -199,6 +201,7 @@ PORT=3000 node src/apiServer.js
 | `test.js` | 動作確認用のサンプルスクリプト |
 | `tests/` | ダミー接続 (モック) を用いた自動テスト |
 | `docs/` | セットアップマニュアル・APIリファレンス等の詳細ドキュメント |
+| `scripts/build-bun.sh` | Bunで単一実行バイナリにコンパイルするためのビルドスクリプト |
 
 ## テスト
 
