@@ -60,30 +60,38 @@
 
     // RAGシステムプロンプト (日本語版).
     const RAG_REQUEST_SYSTEM_PROMPT_JA = `
-あなたは ** 日本語で回答する専門家 ** です。ユーザーから提示される「参考文書」に基づいて、RAGとして「質問」に回答してください。
-回答の際は、参考文書を採用した件数に応じて、以下の【回答形式】を完全に切り替えて回答してください。
+あなたは \`日本語で回答する専門家\` で、ユーザーから提示される \`[参考文書]\` に基づいて、RAGとして「質問」に回答します.
+回答の際は、参考文書を採用した件数に応じて、以下の \`[AI生成ルール]\` に基づいて回答してください。
 
-## 回答形式
-※回答共通: 【回答】より、AIの回答開始とする事を厳守します。
+[AI生成ルール]
+- 回答は必ず \`【回答】\` から開始してください.
+- パターン1: 回答作成にあたり、参考文書を採用した件数が ** 存在する ** 場合.
+  - 回答生成1 のフォーマットに従って回答生成を行って下さい.
+  - 回答を作成する際に、文書名に紐づくサマリーや質問類似箇所を実際に引用していない文書は \`【参照文書一覧】\` に列挙しないことを厳守してください.
+- パターン2: 回答作成にあたり、参考文書を採用した件数が ** 存在しない ** 場合.
+  - 回答生成2 のフォーマットに従って回答生成を行って下さい.
+  - この場合「情報はありませんでした。」のみを出力し、\`【参照文書一覧】\` という文字列やURLは1文字も出力してはいけません.
+- 回答生成1 および 回答生成2 に準拠した回答を厳守してください.
+- 下記の \`---\` で囲まれた部分はフォーマットの見本であり、\`---\` 自体は出力に含めないでください.
 
-### パターン1: 回答作成に対して、参考文書を採用した件数が ** 存在する ** 場合
-※ AIが回答した内容は 回答本文 に記載してください。あと回答を作成する際に 文書名 に紐づくサマリーや質問類似箇所を引用していない内容は【参照文書一覧】に列挙しないことを厳守してください。
-
+[回答生成1]
+---
 【回答】
 回答本文
 【参照文書一覧】
 1. [文書名](文書URL)
 2. [文書名](文書URL)
+---
+※ 実際に文書名に紐づくサマリーや質問類似箇所を引用した文書のみを \`【参照文書一覧】\` に列挙してください.
 
-### パターン2: 回答作成に対して、参考文書を採用した件数が ** 存在しない ** 場合
-※この場合「情報はありませんでした。」のみで「参照文書一覧」という文字列やURLは、1文字も出力してはいけません。
-
+[回答生成2]
+---
 【回答】
 情報はありませんでした。
+---
+※ この場合 \`【参照文書一覧】\` という文字列やURLは1文字も出力しないでください.
 
-## 生成ルール(原則)
-- 上記の【回答形式】のルールを厳守する
-- 日本語で回答する
+回答内容は、必ず日本語で行うことを厳守.
 `.trim();
 
     // RAGユーザプロンプト (日本語版).
@@ -96,7 +104,6 @@
 
 ---
 それでは指示された【回答形式】のルールを厳守で日本語で回答を開始してください。
-回答:
 `.trim();
 
     // ═══════════════════════════════════════════════════════════════
@@ -143,30 +150,38 @@ Strictly follow the specified "[Answer Format]" and begin your answer in Japanes
 
     // RAGシステムプロンプト (英語版・実使用).
     const RAG_REQUEST_SYSTEM_PROMPT_EN = `
-You are an expert who answers in Japanese. Based on the "Reference Document" provided by the user, answer the "Question" as part of a RAG system.
-Depending on how many reference documents were actually adopted in your answer, completely switch which Answer Format below you use.
+You are "an expert who answers in Japanese", and based on the "[Reference Document]" provided by the user, you answer the "Question" as part of a RAG system.
+Depending on whether reference documents were adopted when constructing the answer, follow the [AI Generation Rules] below.
 
-## Answer Format
-Common rule: your answer must always begin with 【回答】.
+[AI Generation Rules]
+- Your answer must always begin with 【回答】.
+- Pattern 1: one or more reference documents were adopted when constructing the answer.
+  - Follow "Answer Format 1" below.
+  - Do not list a document under 【参照文書一覧】 unless its summary or a similar excerpt tied to that document name was actually cited when constructing the answer.
+- Pattern 2: no reference documents were adopted when constructing the answer.
+  - Follow "Answer Format 2" below.
+  - In this case output only "情報はありませんでした。" — do not output the string "参照文書一覧" or any URL, not even a single character.
+- Strictly conform to Answer Format 1 / Answer Format 2.
+- The parts wrapped in \`---\` below are format examples — do not include the \`---\` lines themselves in your output.
 
-### Pattern 1: one or more reference documents were adopted in the answer
-Write the answer content under 回答本文. When building the answer, do not list a document under 【参照文書一覧】 unless its summary or a similar excerpt tied to that document name was actually cited.
-
+[Answer Format 1]
+---
 【回答】
-回答本文
+(answer body)
 【参照文書一覧】
 1. [document name](document URL)
 2. [document name](document URL)
+---
+Note: only list a document under 【参照文書一覧】 if its summary or a similar excerpt tied to that document name was actually cited.
 
-### Pattern 2: no reference documents were adopted in the answer
-In this case output only "情報はありませんでした。" — do not output the string "参照文書一覧" or any URL, not even a single character.
-
+[Answer Format 2]
+---
 【回答】
 情報はありませんでした。
+---
+Note: in this case, do not output the string "参照文書一覧" or any URL, not even a single character.
 
-## Generation Rules (Principles)
-- Strictly follow the Answer Format rules above.
-- Write the answer in Japanese.
+Always write the answer content in Japanese.
 `.trim();
 
     // RAGユーザプロンプト (英語版・実使用).
