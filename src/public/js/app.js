@@ -9,6 +9,7 @@
     const putDocumentForm = document.getElementById("putDocumentForm");
     const putStatus = document.getElementById("putStatus");
     const searchForm = document.getElementById("searchForm");
+    const searchGroupSelect = document.getElementById("searchGroupName");
     const searchResult = document.getElementById("searchResult");
 
     // JSON APIのベースパス (画面 public/ とは名前空間を分離している).
@@ -43,21 +44,27 @@
         });
     };
 
-    // グループ一覧を再読み込みして <select> に反映する.
+    // 指定した <select> の内容を、現在の選択値を維持しつつグループ一覧で置き換える.
+    const _fillGroupOptions = function (selectEl, groups) {
+        const current = selectEl.value;
+        selectEl.innerHTML = '<option value="">-- グループを選択 --</option>';
+        groups.forEach((g) => {
+            const opt = document.createElement("option");
+            opt.value = g;
+            opt.textContent = g;
+            selectEl.appendChild(opt);
+        });
+        if (groups.includes(current)) {
+            selectEl.value = current;
+        }
+    };
+
+    // グループ一覧を再読み込みして、文書一覧用・RAG検索用の <select> 両方に反映する.
     const refreshGroups = async function () {
         try {
             const { groups } = await callApi("GET", "/groups");
-            const current = groupSelect.value;
-            groupSelect.innerHTML = '<option value="">-- グループを選択 --</option>';
-            groups.forEach((g) => {
-                const opt = document.createElement("option");
-                opt.value = g;
-                opt.textContent = g;
-                groupSelect.appendChild(opt);
-            });
-            if (groups.includes(current)) {
-                groupSelect.value = current;
-            }
+            _fillGroupOptions(groupSelect, groups);
+            _fillGroupOptions(searchGroupSelect, groups);
         } catch (e) {
             documentsArea.innerHTML =
                 '<p class="error">グループ一覧の取得に失敗しました: ' + e.message + "</p>";
