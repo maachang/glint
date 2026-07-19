@@ -92,6 +92,10 @@ npm install
     "ragTemperature": 0.25,
     // ベクトル検索の最大取得件数.
     "vectorSearchLength": 30,
+    // ハイブリッド検索 (文字2-gramキーワードスコアをコサイン類似度に合成). デフォルトON.
+    "hybridSearch": true,
+    // ハイブリッド検索のキーワードスコアの重み (0〜1).
+    "hybridKeywordWeight": 0.3,
     // RAGプロンプトに含めるチャンク数.
     "ragRequestChunkLength": 7,
     "ragRequestChunkFormat": "- {{no}} 参考文書名: {{name}}, ...",
@@ -140,6 +144,8 @@ npm install
 | `summaryReasoning` | `null` | サマリー生成時の推論モード on/off/未指定 |
 | `ragTemperature` | `0.25` | RAG推論のTemperature |
 | `vectorSearchLength` | `30` | ベクトル検索の最大取得件数 |
+| `hybridSearch` | `true` | 文字2-gramキーワードスコアをコサイン類似度に合成するハイブリッド検索のON/OFF |
+| `hybridKeywordWeight` | `0.3` | ハイブリッド検索のキーワードスコアの重み (0〜1) |
 | `ragRequestChunkLength` | `7` | RAGプロンプトに含めるチャンク数 |
 | `ragRequestChunkFormat` | (既定テンプレート) | 1チャンク分のプロンプト整形フォーマット |
 | `ragReasoning` | `null` | RAG推論時の推論モード on/off/未指定 |

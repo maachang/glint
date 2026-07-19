@@ -114,6 +114,12 @@
     /** リランキング対象とする候補文書数の上限デフォルト値 */
     const DEFAULT_RERANK_CANDIDATE_LENGTH = 20;
 
+    /** ハイブリッド検索 (文字2-gramキーワードスコアの合成) のデフォルト値 (常時ON) */
+    const DEFAULT_HYBRID_SEARCH = true;
+
+    /** ハイブリッド検索のキーワードスコア重みのデフォルト値 (0〜1, ベクトル重視) */
+    const DEFAULT_HYBRID_KEYWORD_WEIGHT = 0.3;
+
     /**
      * RAG リクエスト内の 1 チャンク分プロンプトフォーマットのデフォルト値.
      *
@@ -424,6 +430,19 @@
             /** ベクトル検索の最大取得件数 */
             this.vectorSearchLength = DEFAULT_VECTOR_SEARCH_LENGTH;
 
+            /**
+             * ハイブリッド検索(文字2-gramによるキーワードスコアをコサイン類似度に
+             * 合成する)のOn/Offを設定します. デフォルトON.
+             * embeddingだけでは固有名詞等の完全一致検索に弱い場合を補うためのもの.
+             */
+            this.hybridSearch = DEFAULT_HYBRID_SEARCH;
+
+            /**
+             * ハイブリッド検索のキーワードスコアの重み (0〜1).
+             * 最終スコア = (1 - w) * ベクトルスコア + w * キーワードスコア.
+             */
+            this.hybridKeywordWeight = DEFAULT_HYBRID_KEYWORD_WEIGHT;
+
             /** RAG プロンプトに含めるチャンク数 */
             this.ragRequestChunkLength = DEFAULT_RAG_REQUEST_CHANK_LENGTH;
 
@@ -687,6 +706,16 @@
                     json,
                     "vectorSearchLength",
                     this.vectorSearchLength,
+                ),
+            );
+            this.hybridSearch = Conv.getBoolean(
+                _mapToGetValue(json, "hybridSearch", this.hybridSearch),
+            );
+            this.hybridKeywordWeight = Conv.getFloat(
+                _mapToGetValue(
+                    json,
+                    "hybridKeywordWeight",
+                    this.hybridKeywordWeight,
                 ),
             );
             this.ragRequestChunkLength = Conv.getInt(

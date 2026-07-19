@@ -288,14 +288,25 @@
          * @param  {Float32Array}  queryEmb    クエリのベクトル (検索したいテキストの埋め込み).
          * @param  {VectorChunk[]} [candidates] 検索対象チャンクを絞り込みたい場合に設定する
          *                                     (tags/categoryでの事前フィルタ用). 省略時は全チャンク対象.
+         * @param  {string}        [queryText]     ハイブリッド検索用のクエリ原文 (キーワードスコア計算に使用).
+         *                                          省略時はコサイン類似度のみでスコアリングする (従来通り).
+         * @param  {number}        [keywordWeight]  キーワードスコアの重み (0〜1). queryText指定時のみ有効.
          * @return {number}        out[] に実際に書き込んだ件数.
          */
-        searchEmbedding(out, queryEmb, candidates) {
+        searchEmbedding(out, queryEmb, candidates, queryText, keywordWeight) {
             const docs = candidates || this._chunks;
             const len = docs.length;
             if (len === 0) {
                 return 0;
             }
+
+            // ハイブリッド検索 (キーワードスコアの合成) を行うかどうか.
+            const useHybrid =
+                typeof queryText === "string" &&
+                queryText.length > 0 &&
+                typeof keywordWeight === "number" &&
+                keywordWeight > 0;
+            const queryBigrams = useHybrid ? _toBigramSet(queryText) : null;
 
             // ── スコア計算 ──
             // キャッシュから一時オブジェクトを取り出し、各チャンクのスコアを計算する.
@@ -304,8 +315,18 @@
             for (i = 0; i < len; i++) {
                 let tmp = this._getCache(); // キャッシュから再利用オブジェクトを取得
                 docs[i].copy(tmp);
-                // コサイン類似度を計算してスコアとして保持
-                tmp.score = _score(queryEmb, tmp.embedding);
+                // コサイン類似度を計算.
+                const vectorScore = _score(queryEmb, tmp.embedding);
+                if (useHybrid) {
+                    // 文字2-gramのオーバーラップ率 (キーワードスコア) を合成する.
+                    // (embeddingだけでは固有名詞等の完全一致検索に弱いことを補うため)
+                    const keywordScore = _keywordScore(queryBigrams, tmp.text);
+                    tmp.score =
+                        (1 - keywordWeight) * vectorScore +
+                        keywordWeight * keywordScore;
+                } else {
+                    tmp.score = vectorScore;
+                }
                 // サマリーをキャッシュのVectorChunkセット.
                 tmp.summary = this._summary;
                 target[i] = tmp;
@@ -364,6 +385,57 @@
         }
         // ゼロ除算防止のために 1e-10 を加算.
         return dot / (Math.sqrt(na * nb) + 1.0e-10);
+    };
+
+    /**
+     * 文字列を文字2-gram(バイグラム)の集合に変換する.
+     *
+     * 日本語は分かち書きされていないため形態素解析が必要になりがちだが、
+     * それを避けるためのシンプルな手法として文字2-gramを採用する
+     * (固有名詞等の部分一致検索に強く、形態素解析器への依存が無い).
+     *
+     * @param  {string} text
+     * @return {Set<string>}
+     */
+    const _toBigramSet = function (text) {
+        const set = new Set();
+        const len = text.length;
+        if (len < 2) {
+            if (len === 1) {
+                set.add(text);
+            }
+            return set;
+        }
+        for (let i = 0; i < len - 1; i++) {
+            set.add(text.substring(i, i + 2));
+        }
+        return set;
+    };
+
+    /**
+     * クエリの2-gram集合と対象テキストとのオーバーラップ率 (キーワードスコア) を計算する.
+     *
+     * 「クエリの2-gramのうち何割が対象テキストに含まれるか」を 0〜1 のスコアとして返す.
+     *
+     * @param  {Set<string>} queryBigrams  クエリ文字列の2-gram集合 (_toBigramSet() の結果).
+     * @param  {string}      text          対象チャンクのテキスト.
+     * @return {number}      0〜1 のスコア (queryBigramsが空の場合は 0).
+     */
+    const _keywordScore = function (queryBigrams, text) {
+        if (queryBigrams.size === 0) {
+            return 0;
+        }
+        const textBigrams = _toBigramSet(text);
+        if (textBigrams.size === 0) {
+            return 0;
+        }
+        let hit = 0;
+        for (const bg of queryBigrams) {
+            if (textBigrams.has(bg)) {
+                hit++;
+            }
+        }
+        return hit / queryBigrams.size;
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -1571,6 +1643,9 @@
      *   - {string}          embBaseUrl     埋め込みモデルサーバーの URL
      *   - {string[]}        tags           絞り込み対象の tag 一覧 (いずれか一致でOR).
      *   - {string[]}        categories     絞り込み対象の category 一覧 (いずれか一致でOR).
+     *   - {boolean}         hybridSearch   キーワードスコア(文字2-gram)をコサイン類似度に
+     *                                      合成するハイブリッド検索のON/OFF (デフォルト: conf.hybridSearch).
+     *   - {number}          hybridKeywordWeight  キーワードスコアの重み (0〜1, デフォルト: conf.hybridKeywordWeight).
      * @return {Promise<VectorChunk[]>}     スコア降順にソートされた結果配列
      */
     const searchEmbedding = async function (vg, message, options) {
@@ -1583,6 +1658,13 @@
         let chunkSize = options.chunkSize || conf.chunkSize;
         let overlap = options.overlap || conf.overlapSize;
         let embBaseUrl = options.embBaseUrl || null;
+        let hybridSearch =
+            options.hybridSearch == true || options.hybridSearch == false
+                ? options.hybridSearch
+                : conf.hybridSearch;
+        let hybridKeywordWeight = hybridSearch
+            ? options.hybridKeywordWeight || conf.hybridKeywordWeight
+            : 0;
 
         // embBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let embObj = null;
@@ -1616,7 +1698,13 @@
                     embObj && embObj.apiKey,
                 );
                 // VectorGroup からベクトルに近い上位 length 件を取得 (絞り込み済み候補が対象)
-                resLen = vg.searchEmbedding(ary, semb, candidates);
+                resLen = vg.searchEmbedding(
+                    ary,
+                    semb,
+                    candidates,
+                    chunks[i],
+                    hybridKeywordWeight,
+                );
                 resLen = resLen > length ? length : resLen;
                 // 結果リストに追加
                 for (j = 0; j < resLen; j++) {
