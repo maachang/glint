@@ -95,9 +95,7 @@
             "CREATE TABLE IF NOT EXISTS backfill_status (" +
                 "groupName TEXT PRIMARY KEY, " +
                 "documentsDone INTEGER NOT NULL DEFAULT 0, " +
-                "chunkFtsDone INTEGER NOT NULL DEFAULT 0, " +
-                "vgsMigrated INTEGER NOT NULL DEFAULT 0, " +
-                "vssMigrated INTEGER NOT NULL DEFAULT 0" +
+                "chunkFtsDone INTEGER NOT NULL DEFAULT 0" +
                 ");",
         );
         // チャンク本体 (テキスト+embedding). 従来の.vgsファイルの実データ.
@@ -144,12 +142,6 @@
         );
         _db.exec(
             "CREATE TABLE IF NOT EXISTS groups (" + "groupName TEXT PRIMARY KEY" + ");",
-        );
-        _db.exec(
-            "CREATE TABLE IF NOT EXISTS groups_backfill (" +
-                "id INTEGER PRIMARY KEY CHECK (id = 1), " +
-                "done INTEGER NOT NULL DEFAULT 0" +
-                ");",
         );
         return _db;
     };
@@ -339,39 +331,18 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * キャッシュされたグループ一覧を返す.
-     * まだバックフィルされていない場合は null を返す (呼び出し元でディレクトリ
-     * スキャンを行い、setCachedGroups() で構築してもらう).
+     * グループ一覧を返す (groupsテーブルそのもの. ディレクトリスキャンは行わない).
      * @param  {string} [dirPath]
-     * @return {string[]|null}
+     * @return {string[]}
      */
-    const getCachedGroups = function (dirPath) {
+    const listGroups = function (dirPath) {
         const db = _getDb(dirPath);
-        const row = db.prepare("SELECT done FROM groups_backfill WHERE id = 1").get();
-        if (!row || !row.done) {
-            return null;
-        }
         return db
             .prepare("SELECT groupName FROM groups ORDER BY groupName")
             .all()
             .map(function (r) {
                 return r.groupName;
             });
-    };
-
-    /** ディレクトリスキャンで得たグループ一覧でキャッシュを構築する (初回のみ). */
-    const setCachedGroups = function (groupNames, dirPath) {
-        const db = _getDb(dirPath);
-        // 既にSQLのみで作成済みのグループ(addGroup済み)を消してしまわないよう、
-        // DELETEはせずマージする (無ければ追加するだけ).
-        const insert = db.prepare("INSERT OR IGNORE INTO groups (groupName) VALUES (?)");
-        groupNames.forEach(function (g) {
-            insert.run(g);
-        });
-        db.prepare(
-            "INSERT INTO groups_backfill (id, done) VALUES (1, 1) " +
-                "ON CONFLICT(id) DO UPDATE SET done = 1",
-        ).run();
     };
 
     /** グループ一覧キャッシュに1件追加する (既に存在する場合は何もしない). */
@@ -566,24 +537,8 @@
         return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4).slice();
     };
 
-    /** .vgsが移行済みかどうかを返す. */
-    const isVgsMigrated = function (groupName, dirPath) {
-        const db = _getDb(dirPath);
-        const row = db.prepare("SELECT vgsMigrated FROM backfill_status WHERE groupName = ?").get(groupName);
-        return !!(row && row.vgsMigrated);
-    };
-
-    /** .vgsを移行済みとして記録する. */
-    const markVgsMigrated = function (groupName, dirPath) {
-        const db = _getDb(dirPath);
-        db.prepare(
-            "INSERT INTO backfill_status (groupName, vgsMigrated) VALUES (?, 1) " +
-                "ON CONFLICT(groupName) DO UPDATE SET vgsMigrated = 1",
-        ).run(groupName);
-    };
-
     /**
-     * レガシー.vgsから読み込んだチャンク配列を一括インポートする (移行専用).
+     * バックアップ復元(importGroupFiles)で解析したチャンク配列を一括インポートする.
      * @param {string} groupName
      * @param {Array<{docName,indexNo,allLength,text,embedding}>} chunks
      * @param {string} [dirPath]
@@ -656,24 +611,8 @@
     // summaries (サマリー本体. 従来の.vssファイルの実データ)
     // ═══════════════════════════════════════════════════════════════
 
-    /** .vssが移行済みかどうかを返す. */
-    const isVssMigrated = function (groupName, dirPath) {
-        const db = _getDb(dirPath);
-        const row = db.prepare("SELECT vssMigrated FROM backfill_status WHERE groupName = ?").get(groupName);
-        return !!(row && row.vssMigrated);
-    };
-
-    /** .vssを移行済みとして記録する. */
-    const markVssMigrated = function (groupName, dirPath) {
-        const db = _getDb(dirPath);
-        db.prepare(
-            "INSERT INTO backfill_status (groupName, vssMigrated) VALUES (?, 1) " +
-                "ON CONFLICT(groupName) DO UPDATE SET vssMigrated = 1",
-        ).run(groupName);
-    };
-
     /**
-     * レガシー.vssから読み込んだサマリーエントリを一括インポートする (移行専用).
+     * バックアップ復元(importGroupFiles)で解析したサマリーエントリを一括インポートする.
      * @param {string} groupName
      * @param {Array<{docName,text,url,time}>} entries
      * @param {string} [dirPath]
@@ -774,8 +713,7 @@
         getAllDocumentMeta,
         getAllowedTagsIfExists,
         setAllowedTags,
-        getCachedGroups,
-        setCachedGroups,
+        listGroups,
         addGroup,
         groupExists,
         replaceDocumentChunkFts,
@@ -784,14 +722,10 @@
         getKeywordScoreMap,
         deleteGroup,
         logSearch,
-        isVgsMigrated,
-        markVgsMigrated,
         importChunks,
         getChunks,
         replaceDocumentChunks,
         deleteDocumentChunks,
-        isVssMigrated,
-        markVssMigrated,
         importSummaryEntries,
         getSummaryEntries,
         getSummaryCount,

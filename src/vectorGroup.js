@@ -10,18 +10,16 @@
  *   独自バイナリファイルにグループ全体を保存しており、1文書の追加・削除でも
  *   グループ全体をロード→フィルタ→丸ごと再書き込みしていたが、この非効率を解消した).
  *
- *   このモジュール導入前に作成された既存グループ(.vgs/.vssファイルが残っているだけの
- *   状態)は、初回アクセス時に自動的にSQLiteへ一括移行される
- *   (_ensureVgsMigrated/_ensureVssMigrated. 利用者側の移行作業は不要).
- *   移行後もレガシーファイル自体は削除せず残す (安全のため).
- *
+ *   .vgs/.vssという独自バイナリファイルによるレガシーデータの読み込み・自動移行には
+ *   対応していない (このモジュールが生成するデータは常にSQLiteのみが正の情報源).
  *   バックアップ/レストア (exportGroupFiles/importGroupFiles) は、従来の.vgs/.vss
- *   互換のバイト列形式を維持している (SQLiteデータをその場でシリアライズ/デシリアライズする).
+ *   互換のバイト列形式をやり取りの形式として維持している
+ *   (SQLiteデータをその場でシリアライズ/デシリアライズするだけで、
+ *    ディスク上の.vgs/.vssファイル自体は読み書きしない).
  *
  * 【クラス構成】
  *   VectorChunk  : 1 チャンク分のデータ (テキスト + 埋め込みベクトル) を保持する
  *   VectorGroup  : チャンク群 + サマリーをまとめて保持し、ベクトル検索機能を持つ
- *   VGFileInfo   : ファイル変更検出用のメタ情報 (グループ名・パス・更新時刻)
  *
  * 【公開関数一覧】
  *   loadVectorGroup                     パス+グループ名から VectorGroup をロード
@@ -30,7 +28,6 @@
  *   searchEmbedding                     対象VectorGroupに対するベクトル座標検索.
  *   searchInference                     searchEmbedding 結果を用いて、RAG検索.
  *   searchVg                            searchEmbedding と searchInference を合わせた処理.
- *   updateVectorGroupFileNames          ディレクトリ内の変更グループを検出
  *
  * 【依存モジュール】
  *   binaryUtil.js    バイナリ読み書き
@@ -163,27 +160,15 @@
          * コンストラクタ.
          *
          * @param {string}        groupName  グループ名 (拡張子なし, 例: 'docs')
-         * @param {string}        dirPath    ファイルが格納されているディレクトリパス
-         * @param {string}        fileName   .vgs ファイル名 (例: 'docs.vgs')
-         * @param {number}        fileTime   .vgs ファイルの最終更新時刻 (ミリ秒, mtimeMs)
+         * @param {string}        dirPath    metaStore(SQLite)のDBファイルが格納されているディレクトリパス
          * @param {VectorChunk[]} chunks     ロード済みの VectorChunk 配列
          * @param {VectorSummary} summary    対応する VectorSummary オブジェクト
          * @param {VectorChunk[]} [cache]    VectorChunk オブジェクトの再利用プール (省略時は空配列).
          *                                   searchEmbedding() が内部で使い回すバッファとして機能する.
          */
-        constructor(
-            groupName,
-            dirPath,
-            fileName,
-            fileTime,
-            chunks,
-            summary,
-            cache,
-        ) {
+        constructor(groupName, dirPath, chunks, summary, cache) {
             this.groupName = groupName;
             this.dirPath = dirPath;
-            this.fileName = fileName;
-            this.fileTime = fileTime;
             this._chunks = chunks;
             this._summary = summary;
             // cache が渡されない場合は空配列で初期化する.
@@ -215,26 +200,6 @@
         }
 
         /**
-         * .vgs ファイル名を返す (拡張子込み, 例: 'docs.vgs').
-         *
-         * @return {string}
-         */
-        getFileName() {
-            return this.fileName;
-        }
-
-        /**
-         * .vgs ファイルの最終更新時刻 (ミリ秒) を返す.
-         *
-         * ロード時点のスナップショット値であり、isUpdateFile() との比較に使う.
-         *
-         * @return {number}
-         */
-        getFileTime() {
-            return this.fileTime;
-        }
-
-        /**
          * 保持している VectorChunk の配列を返す.
          *
          * @return {VectorChunk[]}
@@ -262,23 +227,6 @@
          */
         getDocuments() {
             return this._summary.getDocuments();
-        }
-
-        /**
-         * ディスク上の .vgs ファイルがロード後に更新されたか確認する.
-         *
-         * ロード時に記録した fileTime と現在のファイル更新時刻を比較し、
-         * 異なっていれば true を返す.
-         * ポーリングによるホットリロード判定などに使用する.
-         *
-         * @return {boolean} true = ファイルが更新されている
-         * @throws {Error}   ファイルが存在しないなど stat に失敗した場合
-         */
-        isUpdateFile() {
-            const current = fs.statSync(
-                this.dirPath + "/" + this.fileName,
-            ).mtimeMs;
-            return this.fileTime !== current;
         }
 
         /**
@@ -393,26 +341,6 @@
         return dot / (Math.sqrt(na * nb) + 1.0e-10);
     };
 
-    // ═══════════════════════════════════════════════════════════════
-    // VGFileInfo
-    //   ディレクトリ内の .vgs ファイルを監視するための軽量なメタ情報クラス.
-    //   updateVectorGroupFileNames() が Map<groupName, VGFileInfo> を管理することで、
-    //   ファイルの追加・更新・削除を検出できる.
-    // ═══════════════════════════════════════════════════════════════
-    class VGFileInfo {
-        /**
-         * @param {string} groupName  グループ名 (拡張子なし)
-         * @param {string} filePath   ファイルが存在するディレクトリパス
-         * @param {string} fileName   ファイル名 (例: 'docs.vgs')
-         * @param {number} fileTime   ファイルの最終更新時刻 (ミリ秒, mtimeMs)
-         */
-        constructor(groupName, filePath, fileName, fileTime) {
-            this.groupName = groupName;
-            this.filePath = filePath;
-            this.fileName = fileName;
-            this.fileTime = fileTime;
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════
     // 内部ユーティリティ関数
@@ -444,67 +372,14 @@
     };
 
     /**
-     * [private]指定パスのファイルが存在するかを確認する.
-     * stat に失敗した場合 (ファイルがない場合) は false を返す.
-     *
-     * @param  {string}  dirPath   ディレクトリパス
-     * @param  {string}  fileName  ファイル名
-     * @return {boolean}
-     */
-    const _isFile = function (dirPath, fileName) {
-        try {
-            return fs.statSync(dirPath + "/" + fileName).isFile();
-        } catch (e) {
-            return false;
-        }
-    };
-
-    /**
-     * [private]グループが存在するかを判定する.
-     *
-     * 主な実体は metaStore(SQLite)の groups テーブルだが、このモジュール導入前
-     * からのレガシー.vgs/.vssが(まだ移行されず)残っているだけのグループも
-     * 存在扱いにするため、ファイルの有無も併せて確認する.
+     * [private]グループが存在するかを判定する (metaStore(SQLite)の groups テーブルを参照).
      *
      * @param  {string}  groupName  正規化済みのグループ名
      * @param  {string}  dirPath    正規化済みのディレクトリパス
      * @return {boolean}
      */
     const _groupExists = function (groupName, dirPath) {
-        const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
-        const vsFileName = groupName + VECTOR_SUMMARY_FILE_EXTENSION;
-        if (_isFile(dirPath, vgFileName) || _isFile(dirPath, vsFileName)) {
-            return true;
-        }
         return metaStore.groupExists(groupName, dirPath);
-    };
-
-    /**
-     * [private]ファイルの最終更新時刻をミリ秒で返す.
-     * ファイル変更検出 (updateVectorGroupFileNames) で使用する.
-     *
-     * @param  {string} filePath  フルファイルパス
-     * @return {number}           mtimeMs (ミリ秒)
-     */
-    const _getFileTime = function (filePath) {
-        return fs.statSync(filePath).mtimeMs;
-    };
-
-    /**
-     * [private]指定ディレクトリ直下のファイル名一覧を返す.
-     * サブディレクトリは除外する.
-     *
-     * @param  {string}   dirPath  ディレクトリパス
-     * @return {string[]}          ファイル名の配列
-     */
-    const _getPathToFiles = function (dirPath) {
-        return fs.readdirSync(dirPath).filter(function (name) {
-            try {
-                return fs.statSync(dirPath + "/" + name).isFile();
-            } catch (e) {
-                return false;
-            }
-        });
     };
 
     /**
@@ -621,35 +496,9 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * [private]レガシーの.vgsファイルが残っている場合、metaStore(SQLite)の
-     * chunksテーブルへ一度だけ移行する (既に移行済みなら即戻る).
-     *
-     * 移行前に対象グループへ直接書き込む (putTextFileToVectorGroup等) と、
-     * 後からこの移行処理が古いデータで上書き/競合してしまうため、書き込み系の
-     * 処理は必ず先にこれを呼ぶこと.
-     *
-     * @param {string} groupName  正規化済みのグループ名
-     * @param {string} dirPath    正規化済みのディレクトリパス
-     */
-    const _ensureVgsMigrated = function (groupName, dirPath) {
-        if (metaStore.isVgsMigrated(groupName, dirPath)) {
-            return;
-        }
-        const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
-        if (_isFile(dirPath, vgFileName)) {
-            const chunks = _loadGroupFromBinary(
-                fs.readFileSync(dirPath + "/" + vgFileName),
-            );
-            metaStore.importChunks(groupName, chunks, dirPath);
-        }
-        metaStore.markVgsMigrated(groupName, dirPath);
-    };
-
-    /**
      * [private]グループの全チャンクをロードして VectorChunk の配列を返す.
      *
-     * 実体は metaStore(SQLite)の chunksテーブル. このモジュール導入前からの
-     * レガシー.vgsが残っている場合は、初回アクセス時にのみ自動的に移行する.
+     * 実体は metaStore(SQLite)の chunksテーブル.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {string}        groupName  グループ名
@@ -659,7 +508,6 @@
     const _loadGroup = function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
         dirPath = _getVectorStoreDir(dirPath);
-        _ensureVgsMigrated(groupName, dirPath);
         const rows = metaStore.getChunks(groupName, dirPath);
         return rows.map(function (r) {
             return new VectorChunk(r.text, r.indexNo, r.allLength, r.docName, r.embedding);
@@ -768,42 +616,9 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * [private]レガシーの.vssファイルが残っている場合、metaStore(SQLite)の
-     * summariesテーブル・許可タグ一覧(group_settings)へ一度だけ移行する
-     * (既に移行済みなら即戻る)。_ensureVgsMigrated()と同様の理由で、書き込み系の
-     * 処理は必ず先にこれを呼ぶこと.
-     *
-     * @param {string} groupName  正規化済みのグループ名
-     * @param {string} dirPath    正規化済みのディレクトリパス
-     */
-    const _ensureVssMigrated = function (groupName, dirPath) {
-        if (metaStore.isVssMigrated(groupName, dirPath)) {
-            return;
-        }
-        const vsFileName = groupName + VECTOR_SUMMARY_FILE_EXTENSION;
-        if (_isFile(dirPath, vsFileName)) {
-            const summary = _loadSummaryFromBinary(
-                fs.readFileSync(dirPath + "/" + vsFileName),
-            );
-            const names = summary.getDocuments();
-            const entries = names.map(function (name) {
-                const vv = summary.get(name);
-                return { docName: name, text: vv.text, url: vv.url, time: vv.time };
-            });
-            metaStore.importSummaryEntries(groupName, entries, dirPath);
-            // レガシー.vssのallowedTagsも、まだSQL側に無ければ引き継ぐ.
-            if (metaStore.getAllowedTagsIfExists(groupName, dirPath) == null) {
-                metaStore.setAllowedTags(groupName, summary.getAllowedTags(), dirPath);
-            }
-        }
-        metaStore.markVssMigrated(groupName, dirPath);
-    };
-
-    /**
      * [private]グループの全サマリーをロードして VectorSummary を返す.
      *
-     * 実体は metaStore(SQLite)の summariesテーブル. このモジュール導入前からの
-     * レガシー.vssが残っている場合は、初回アクセス時にのみ自動的に移行する.
+     * 実体は metaStore(SQLite)の summariesテーブル.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {string}        groupName  グループ名
@@ -813,7 +628,6 @@
     const _loadSummary = function (groupName, dirPath) {
         // vectrStore用ディレクトリパスを取得.
         dirPath = _getVectorStoreDir(dirPath);
-        _ensureVssMigrated(groupName, dirPath);
         const entries = metaStore.getSummaryEntries(groupName, dirPath);
         const summary = new VectorSummary();
         entries.forEach(function (e) {
@@ -971,25 +785,10 @@
             err.code = "ENOENT";
             throw err;
         }
-        const vgFileName = groupName + VECTOR_GROUP_FILE_EXTENSION;
-        // レガシー.vgsが残っている場合のみ更新時刻を取得する (無ければ0扱い).
-        // ※ metaStore(SQLite)への全面移行後は、書き込みが.vgsに触れないため、
-        //   isUpdateFile()によるファイル変更検出は実質的に機能しなくなる
-        //   (元々このモジュール外からの利用は無い).
-        const fileTime = _isFile(dirPath, vgFileName)
-            ? _getFileTime(dirPath + "/" + vgFileName)
-            : 0;
         const chunks = _loadGroup(groupName, dirPath);
         const summary = _loadVectorSummary(groupName, dirPath);
         // cache は省略 → VectorGroup コンストラクタ内で空配列として初期化される
-        return new VectorGroup(
-            groupName,
-            dirPath,
-            vgFileName,
-            fileTime,
-            chunks,
-            summary,
-        );
+        return new VectorGroup(groupName, dirPath, chunks, summary);
     };
 
     /**
@@ -1402,12 +1201,6 @@
             // VectorGroupデータ更新開始.
             const lockUk = await sync.lock(groupName);
             try {
-                // レガシー.vgs/.vssが残っている場合、直接書き込む前に必ず先に
-                // metaStore(SQLite)へ移行しておく (移行前に対象文書だけ直接
-                // 書き込むと、後からの移行処理が古いデータで上書き/競合するため).
-                _ensureVgsMigrated(groupName, dirPath);
-                _ensureVssMigrated(groupName, dirPath);
-
                 // 対象文書のチャンク・サマリーだけを置き換える
                 // (他の文書のデータには一切触れない. 従来は毎回グループ全体を
                 //  ロード→フィルタ→丸ごと保存し直していたが、この非効率を解消した).
@@ -1497,11 +1290,6 @@
                 // グループ自体が存在しない → 既に削除済み等として正常扱い.
                 return false;
             }
-
-            // レガシー.vgs/.vssが残っている場合、直接削除する前に必ず先に
-            // metaStore(SQLite)へ移行しておく (putTextFileToVectorGroup()と同様の理由).
-            _ensureVgsMigrated(groupName, dirPath);
-            _ensureVssMigrated(groupName, dirPath);
 
             // 対象docNameが実際に存在するか確認する.
             const summaryEntries = metaStore.getSummaryEntries(groupName, dirPath);
@@ -2215,111 +2003,16 @@
         return result;
     };
 
-    // ═══════════════════════════════════════════════════════════════
-    // VectorGroupFile 変更検出
-    // ═══════════════════════════════════════════════════════════════
-
     /**
-     * 指定ディレクトリ内の .vgs ファイルを走査し、
-     * 前回チェック時から追加・更新・削除されたグループ名の一覧を返す.
-     *
-     * 【使い方のイメージ】
-     *   const gfileList = new Map(); // 呼び出し元で永続管理する Map
-     *   setInterval(function() {
-     *     const changed = updateVectorGroupFileNames(gfileList, '/data');
-     *     // changed に含まれるグループを再ロードするなどの処理を行う
-     *   }, 5000);
-     *
-     * 【変更検出の仕組み】
-     *   - gfileList に存在しない .vgs ファイルが見つかった → 新規追加
-     *   - gfileList に存在するが fileTime が変わった .vgs ファイルが見つかった → 更新
-     *   - gfileList に存在するが今回の走査で見つからなかったグループ → 削除
+     * 存在するグループ名一覧を返す (metaStore(SQLite)の groups テーブルを参照).
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
-     * @param  {Map<string, VGFileInfo>} gfileList
-     *   管理中のグループファイルマップ (呼び出し元で永続保持すること).
-     *   この関数の呼び出しごとに Map の内容が更新される.
-     * @param  {string} [*]dirPath  走査するディレクトリパス
-     * @return {string[]}  今回の走査で変更・削除が確認されたグループ名の配列.
-     *                     変更がなければ空配列を返す.
-     */
-    const updateVectorGroupFileNames = function (gfileList, dirPath) {
-        // ディレクトリ作成を行い、正しいディレクトリパスを返却.
-        dirPath = _mkdirsToVectorStore(dirPath);
-        const nowGroups = new Set(); // 今回の走査で見つかったグループ名セット
-        const ret = []; // 変更されたグループ名リスト
-        const files = _getPathToFiles(dirPath);
-
-        for (let i = 0; i < files.length; i++) {
-            const name = files[i];
-            // .vgs 以外のファイルはスキップ
-            if (!name.endsWith(VECTOR_GROUP_FILE_EXTENSION)) continue;
-
-            // 拡張子を除いてグループ名を取得
-            const group = name.slice(0, -FILE_EXTENSION_SIZE);
-            nowGroups.add(group);
-
-            const time = _getFileTime(dirPath + "/" + name);
-            const src = gfileList.get(group);
-
-            if (src === undefined || src.fileTime !== time) {
-                // 新規 or ファイルタイムが変わった → 変更リストに追加してマップを更新
-                gfileList.set(
-                    group,
-                    new VGFileInfo(group, dirPath, name, time),
-                );
-                ret.push(group);
-            }
-        }
-
-        // 今回の走査で見つからなかったグループ = 削除されたグループ
-        const removeGroups = [];
-        gfileList.forEach(function (val, group) {
-            if (!nowGroups.has(group)) {
-                ret.push(group); // 変更リストに追加
-                removeGroups.push(group); // マップから削除するために記録
-            }
-        });
-        // forEach 中にマップを直接変更しないよう、別ループで削除する
-        for (let i = 0; i < removeGroups.length; i++) {
-            gfileList.delete(removeGroups[i]);
-        }
-        return ret;
-    };
-
-    /**
-     * 指定ディレクトリ内に存在する VectorGroup (.vgsファイル) のグループ名一覧を返す.
-     *
-     * updateVectorGroupFileNames() と異なり、変更検出用の Map を必要とせず、
-     * その時点で存在するグループ名を単純に列挙する (APIの一覧取得などに利用).
-     *
-     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
-     * @param  {string} [*]dirPath  走査するディレクトリパス
+     * @param  {string} [*]dirPath  ディレクトリパス
      * @return {string[]}  グループ名の配列.
      */
     const listGroups = function (dirPath) {
         dirPath = _mkdirsToVectorStore(dirPath);
-
-        // metaStore(SQLite)にキャッシュされていれば、ディレクトリスキャン
-        // (_getPathToFiles、全ファイルにfs.statSyncする) を避けられる.
-        const cached = metaStore.getCachedGroups(dirPath);
-        if (cached != null) {
-            return cached;
-        }
-
-        // 未バックフィル (このモジュール導入前、または初回起動時) の場合のみ
-        // ディレクトリスキャンを行い、以降のためにキャッシュを構築する.
-        const files = _getPathToFiles(dirPath);
-        const ret = [];
-        for (let i = 0; i < files.length; i++) {
-            const name = files[i];
-            if (!name.endsWith(VECTOR_GROUP_FILE_EXTENSION)) continue;
-            ret.push(name.slice(0, -FILE_EXTENSION_SIZE));
-        }
-        metaStore.setCachedGroups(ret, dirPath);
-        // setCachedGroups()はスキャン結果を既存キャッシュへマージするだけなので、
-        // (SQLのみで作成済みのグループ等を含む) 確定後の内容を改めて取得して返す.
-        return metaStore.getCachedGroups(dirPath);
+        return metaStore.listGroups(dirPath);
     };
 
     /**
@@ -2485,10 +2178,7 @@
                     "VectorGroup already exists: " + groupName,
                 );
             }
-            // 空グループとして登録する (chunks/summariesには何も無い状態.
-            // レガシーファイルは作成しないため、移行済みとして記録しておく).
-            metaStore.markVgsMigrated(groupName, dirPath);
-            metaStore.markVssMigrated(groupName, dirPath);
+            // 空グループとして登録する (chunks/summariesには何も無い状態).
             metaStore.addGroup(groupName, dirPath);
         } finally {
             sync.unlock(groupName, lockUk);
@@ -2513,10 +2203,6 @@
             if (!_groupExists(groupName, pg.path)) {
                 return { vgs: null, vss: null };
             }
-
-            // レガシーファイルが残っていれば先にmetaStore(SQLite)へ移行しておく.
-            _ensureVgsMigrated(groupName, pg.path);
-            _ensureVssMigrated(groupName, pg.path);
 
             // metaStore(SQLite)から取得し、既存のバイナリシリアライズ関数で
             // .vgs/.vss と同じバイト列形式に組み立てる (バックアップ形式の互換性維持).
@@ -2598,8 +2284,6 @@
                 metaStore.importSummaryEntries(groupName, entries, dirPath);
                 metaStore.setAllowedTags(groupName, summary.getAllowedTags(), dirPath);
             }
-            metaStore.markVgsMigrated(groupName, dirPath);
-            metaStore.markVssMigrated(groupName, dirPath);
             metaStore.addGroup(groupName, dirPath);
         } finally {
             sync.unlock(groupName, lockUk);
@@ -2632,16 +2316,9 @@
             throw err;
         }
 
-        // 未移行 (このモジュール導入前からのグループ等) の場合のみ、
-        // レガシー.vssから一度だけ読み込んでmetaStoreに移行する.
-        const lockUk = await sync.lock(groupName);
-        try {
-            _ensureVssMigrated(groupName, pg.path);
-            const migrated = metaStore.getAllowedTagsIfExists(groupName, pg.path);
-            return migrated != null ? migrated : [];
-        } finally {
-            sync.unlock(groupName, lockUk);
-        }
+        // グループは存在するが、まだ許可タグ一覧が設定されていない
+        // (未設定=制限なし=自由生成のまま).
+        return [];
     };
 
     /**
@@ -2697,7 +2374,6 @@
     module.exports = {
         VectorChunk,
         VectorGroup,
-        VGFileInfo,
         loadVectorGroup,
         putTextFileToVectorGroup,
         removeTextFileFromVectorGroup,
@@ -2705,7 +2381,6 @@
         resultEmbeddingToTotalization,
         searchInference,
         search,
-        updateVectorGroupFileNames,
         listGroups,
         getGroupDocuments,
         getGroupStats,
