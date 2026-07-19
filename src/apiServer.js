@@ -6,21 +6,23 @@
  * PDF登録対応のため pdfExtract.js 経由で外部npm依存 (pdf-parse) を利用する.
  *
  * 【エンドポイント】
- *   GET    /groups                             グループ一覧
- *   GET    /groups/:group/documents             グループ内の文書一覧・文書数
- *   GET    /groups/:group/stats                 グループ内の tag/category 集計 (件数・比率)
- *   POST   /groups/:group/documents             文書登録 (非同期. 即時にjobIdを返す)
- *   DELETE /groups/:group/documents/:fileName  文書削除
- *   GET    /groups/:group/documents/:fileName/raw  元データの取得 (url自動発行時のみ有効)
- *   GET    /jobs/:jobId                        文書登録ジョブの状態確認
- *   POST   /groups/:group/search               RAG検索 (embedding検索 + 推論. 同期)
- *   GET    /groups/:group/backup               グループのバックアップ (.vgs/.vss + 元データ)
- *   POST   /groups/:group/restore              グループのレストア (バックアップから復元)
- *   GET    /health                             llama.cpp接続先の状態確認
- *   GET    /*                                  public/配下の静的ファイル配信・jhtml動的画面
+ *   JSON API は全て "/api" 配下 (public/配下の画面と名前空間を分離するため).
+ *
+ *   GET    /api/groups                             グループ一覧
+ *   GET    /api/groups/:group/documents             グループ内の文書一覧・文書数
+ *   GET    /api/groups/:group/stats                 グループ内の tag/category 集計 (件数・比率)
+ *   POST   /api/groups/:group/documents             文書登録 (非同期. 即時にjobIdを返す)
+ *   DELETE /api/groups/:group/documents/:fileName  文書削除
+ *   GET    /api/groups/:group/documents/:fileName/raw  元データの取得 (url自動発行時のみ有効)
+ *   GET    /api/jobs/:jobId                        文書登録ジョブの状態確認
+ *   POST   /api/groups/:group/search               RAG検索 (embedding検索 + 推論. 同期)
+ *   GET    /api/groups/:group/backup               グループのバックアップ (.vgs/.vss + 元データ)
+ *   POST   /api/groups/:group/restore              グループのレストア (バックアップから復元)
+ *   GET    /api/health                             llama.cpp接続先の状態確認
+ *   GET    /*                                     "/api" 以外は public/配下の静的ファイル配信・jhtml動的画面
  *
  * 【画面 (public/) について】
- *   上記のJSON APIルートに一致しないGETリクエストは、public/配下のファイルを
+ *   "/api" 配下に一致しないGETリクエストは、public/配下のファイルを
  *   探して配信する (静的ファイルはそのまま, ".mt.html" は jhtml.js でサーバサイド
  *   レンダリングしてから配信). "/" は "public/index.mt.html" にマッピングする.
  *   public/index.mt.html + public/js/app.js が、ブラウザから本APIを呼び出して
@@ -28,25 +30,25 @@
  *
  * 【文書登録が非同期な理由】
  *   サマリー生成 + 埋め込みベクトル化で数秒〜数十秒かかるため、リクエストを
- *   ブロックせず即時に jobId を返し、GET /jobs/:jobId で結果を確認する形にしている.
+ *   ブロックせず即時に jobId を返し、GET /api/jobs/:jobId で結果を確認する形にしている.
  *
  * 【PDF登録について】
- *   POST /groups/:group/documents のリクエストボディで "mimeType": "application/pdf"
+ *   POST /api/groups/:group/documents のリクエストボディで "mimeType": "application/pdf"
  *   を指定した場合、"text" の代わりに "fileBase64" (PDFバイナリをbase64化したもの) を
  *   必須とする. pdfExtract.js でテキストを抽出してから登録する.
  *   ※ テキストレイヤーの無いスキャン画像PDFからは抽出できない.
  *
  * 【url未指定時の自動URL発行について】
- *   POST /groups/:group/documents で "url" が未指定の場合、アップロードされた
+ *   POST /api/groups/:group/documents で "url" が未指定の場合、アップロードされた
  *   元データ (テキストまたはPDFバイナリ) を conf.srcDocumentPath 配下に保存し、
- *   GET /groups/:group/documents/:fileName/raw で読み出せるURLを自動生成して
+ *   GET /api/groups/:group/documents/:fileName/raw で読み出せるURLを自動生成して
  *   文書の参照URLとして使用する.
  *
  * 【バックアップ/レストアについて】
- *   GET /groups/:group/backup は .vgs/.vss と元データ (srcDocumentPath配下) を
+ *   GET /api/groups/:group/backup は .vgs/.vss と元データ (srcDocumentPath配下) を
  *   base64化してJSON1つにまとめて返す (tar/zip等の外部依存は使わない).
  *   glint.json の設定スナップショットも参照用として含まれるが、apiKeyはマスクされ、
- *   POST /groups/:group/restore で復元してもグローバル設定には反映されない.
+ *   POST /api/groups/:group/restore で復元してもグローバル設定には反映されない.
  *   restore先に既にグループが存在する場合、body.overwrite=true を指定しない限り
  *   409 エラーになる (誤った上書きを防ぐため).
  *
@@ -594,7 +596,7 @@
         _sendJson(res, 200, { removed });
     };
 
-    // GET /groups/:group/documents/:fileName/raw
+    // GET /api/groups/:group/documents/:fileName/raw
     const _handleGetRawDocument = function (req, res, groupName, fileName) {
         const buffer = _loadRawDocument(groupName, fileName);
         if (buffer == null) {
@@ -619,7 +621,7 @@
         res.end(buffer);
     };
 
-    // GET /groups
+    // GET /api/groups
     const _handleListGroups = function (req, res) {
         const groups = vg.listGroups();
         _sendJson(res, 200, { groups });
@@ -645,7 +647,7 @@
         _sendJson(res, 200, { count: documents.length, documents });
     };
 
-    // GET /groups/:group/stats
+    // GET /api/groups/:group/stats
     const _handleGroupStats = async function (req, res, groupName) {
         const stats = await vg.getGroupStats(groupName);
         _sendJson(res, 200, stats);
@@ -695,7 +697,7 @@
         };
     };
 
-    // GET /groups/:group/backup
+    // GET /api/groups/:group/backup
     const _handleBackupGroup = async function (req, res, groupName) {
         const files = await vg.exportGroupFiles(groupName);
         if (files.vgs == null && files.vss == null) {
@@ -733,9 +735,9 @@
         res.end(txt);
     };
 
-    // POST /groups/:group/restore
+    // POST /api/groups/:group/restore
     // body: { overwrite?, vectorStore: {vgs, vss}, srcDocuments?: [{fileName, mimeType, content}] }
-    // GET /groups/:group/backup が返すバンドルをそのまま渡せる形式.
+    // GET /api/groups/:group/backup が返すバンドルをそのまま渡せる形式.
     // glintConfigSnapshot が含まれていても glint.json への反映は行わない (参照用のため無視する).
     const _handleRestoreGroup = async function (req, res, groupName) {
         const body = await _readJsonBody(req);
@@ -795,7 +797,7 @@
         });
     };
 
-    // POST /groups/:group/search
+    // POST /api/groups/:group/search
     // body: { message, tags?, categories?, options? }
     // tags/categories はベクトル検索結果に対する事後フィルタ (いずれか一致でOR).
     const _handleSearch = async function (req, res, groupName) {
@@ -833,24 +835,38 @@
     // 1リクエストをルーティングして処理する.
     const _route = async function (req, res) {
         const pathname = req.url.split("?")[0];
-        const seg = _pathSegments(pathname);
+        const fullSeg = _pathSegments(pathname);
 
-        // GET /health
+        // "/api/..." 以外は JSON API の対象外.
+        // (public/ 配下の静的ファイル・jhtml動的テンプレートと名前空間を分離するため)
+        if (fullSeg[0] !== "api") {
+            if (req.method === "GET") {
+                await _handlePublicFile(req, res, pathname);
+                return;
+            }
+            console.warn("Not found: " + req.method + " " + pathname);
+            _sendError(res, 404, "Not found: " + req.method + " " + pathname);
+            return;
+        }
+        // 先頭の "api" セグメントを除去し、以降は従来通りのルーティングを行う.
+        const seg = fullSeg.slice(1);
+
+        // GET /api/health
         if (req.method === "GET" && seg.length === 1 && seg[0] === "health") {
             _handleHealth(req, res);
             return;
         }
-        // GET /jobs/:jobId
+        // GET /api/jobs/:jobId
         if (req.method === "GET" && seg.length === 2 && seg[0] === "jobs") {
             _handleGetJob(req, res, seg[1]);
             return;
         }
-        // GET /groups
+        // GET /api/groups
         if (req.method === "GET" && seg.length === 1 && seg[0] === "groups") {
             _handleListGroups(req, res);
             return;
         }
-        // /groups/:group/documents[/...]
+        // /api/groups/:group/documents[/...]
         if (seg[0] === "groups" && seg[2] === "documents") {
             const groupName = seg[1];
             if (req.method === "GET" && seg.length === 3) {
@@ -865,7 +881,7 @@
                 await _handleDeleteDocument(req, res, groupName, seg[3]);
                 return;
             }
-            // GET /groups/:group/documents/:fileName/raw
+            // GET /api/groups/:group/documents/:fileName/raw
             if (
                 req.method === "GET" &&
                 seg.length === 5 &&
@@ -875,7 +891,7 @@
                 return;
             }
         }
-        // GET /groups/:group/stats
+        // GET /api/groups/:group/stats
         if (
             req.method === "GET" &&
             seg.length === 3 &&
@@ -885,7 +901,7 @@
             await _handleGroupStats(req, res, seg[1]);
             return;
         }
-        // POST /groups/:group/search
+        // POST /api/groups/:group/search
         if (
             req.method === "POST" &&
             seg.length === 3 &&
@@ -895,7 +911,7 @@
             await _handleSearch(req, res, seg[1]);
             return;
         }
-        // GET /groups/:group/backup
+        // GET /api/groups/:group/backup
         if (
             req.method === "GET" &&
             seg.length === 3 &&
@@ -905,7 +921,7 @@
             await _handleBackupGroup(req, res, seg[1]);
             return;
         }
-        // POST /groups/:group/restore
+        // POST /api/groups/:group/restore
         if (
             req.method === "POST" &&
             seg.length === 3 &&
@@ -916,13 +932,7 @@
             return;
         }
 
-        // 上記のAPIルートに一致しなかった GET リクエストは、public/ 配下の
-        // 静的ファイル・jhtml動的テンプレートの配信を試みる.
-        if (req.method === "GET") {
-            await _handlePublicFile(req, res, pathname);
-            return;
-        }
-
+        // "/api" 配下だが、どのAPIルートにも一致しなかった場合.
         console.warn("Not found: " + req.method + " " + pathname);
         _sendError(res, 404, "Not found: " + req.method + " " + pathname);
     };

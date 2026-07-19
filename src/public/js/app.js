@@ -11,9 +11,12 @@
     const searchForm = document.getElementById("searchForm");
     const searchResult = document.getElementById("searchResult");
 
+    // JSON APIのベースパス (画面 public/ とは名前空間を分離している).
+    const API_BASE = "/api";
+
     // API呼び出し共通ヘルパー. エラー時は { error } を投げる.
     const callApi = async function (method, path, body) {
-        const res = await fetch(path, {
+        const res = await fetch(API_BASE + path, {
             method,
             headers: body ? { "Content-Type": "application/json" } : undefined,
             body: body ? JSON.stringify(body) : undefined,

@@ -160,20 +160,20 @@ PORT=3000 node src/apiServer.js
 
 | メソッド | パス | 説明 |
 |---------|------|------|
-| GET | `/groups` | グループ一覧 |
-| GET | `/groups/:group/documents` | グループ内の文書一覧・文書数 (tag/category含む) |
-| GET | `/groups/:group/stats` | グループ内の tag/category 集計 (件数・比率) |
-| POST | `/groups/:group/documents` | 文書登録 (非同期. 即時に `jobId` を返す) |
-| DELETE | `/groups/:group/documents/:fileName` | 文書削除 |
-| GET | `/groups/:group/documents/:fileName/raw` | 元データの取得 (url自動発行時のみ) |
-| GET | `/jobs/:jobId` | 文書登録ジョブの状態確認 |
-| POST | `/groups/:group/search` | RAG検索 (embedding検索 + 推論. 同期。`tags`/`categories` で絞り込み可) |
-| GET | `/groups/:group/backup` | グループのバックアップ (.vgs/.vss + 元データを1つのJSONで) |
-| POST | `/groups/:group/restore` | グループのレストア (バックアップから復元) |
-| GET | `/health` | llama.cpp接続先の状態確認 (healthy/useCount/maxConnectCount) |
+| GET | `/api/groups` | グループ一覧 |
+| GET | `/api/groups/:group/documents` | グループ内の文書一覧・文書数 (tag/category含む) |
+| GET | `/api/groups/:group/stats` | グループ内の tag/category 集計 (件数・比率) |
+| POST | `/api/groups/:group/documents` | 文書登録 (非同期. 即時に `jobId` を返す) |
+| DELETE | `/api/groups/:group/documents/:fileName` | 文書削除 |
+| GET | `/api/groups/:group/documents/:fileName/raw` | 元データの取得 (url自動発行時のみ) |
+| GET | `/api/jobs/:jobId` | 文書登録ジョブの状態確認 |
+| POST | `/api/groups/:group/search` | RAG検索 (embedding検索 + 推論. 同期。`tags`/`categories` で絞り込み可) |
+| GET | `/api/groups/:group/backup` | グループのバックアップ (.vgs/.vss + 元データを1つのJSONで) |
+| POST | `/api/groups/:group/restore` | グループのレストア (バックアップから復元) |
+| GET | `/api/health` | llama.cpp接続先の状態確認 (healthy/useCount/maxConnectCount) |
 | GET | `/*` | 上記に一致しないGETは `src/public/` の静的ファイル・jhtml動的画面を配信 |
 
-文書登録はサマリー生成・埋め込みベクトル化で数秒〜数十秒かかるため非同期です。`POST /groups/:group/documents` で即時に `jobId` を受け取り、`GET /jobs/:jobId` で完了を確認してください。
+文書登録はサマリー生成・埋め込みベクトル化で数秒〜数十秒かかるため非同期です。`POST /api/groups/:group/documents` で即時に `jobId` を受け取り、`GET /api/jobs/:jobId` で完了を確認してください。
 
 すべてのllama.cppサーバが同時接続数上限に達している、または不健全な場合は `503` エラーを返します（待機・リトライは行いません）。
 
@@ -187,7 +187,7 @@ PORT=3000 node src/apiServer.js
 { "fileName": "manual.pdf", "mimeType": "application/pdf", "fileBase64": "<base64エンコードしたPDF>" }
 ```
 
-`url` を省略した場合、アップロードした元データ（テキストまたはPDFバイナリ）が保存され、`GET /groups/:group/documents/:fileName/raw` から取得できるURLが自動的に文書の参照URLとして使われます（このURLのベースは `glint.json` の `publicBaseUrl`、未設定時はリクエストの `Host` ヘッダーから決定されます）。`url` を指定した場合は元データの保存は行われません。
+`url` を省略した場合、アップロードした元データ（テキストまたはPDFバイナリ）が保存され、`GET /api/groups/:group/documents/:fileName/raw` から取得できるURLが自動的に文書の参照URLとして使われます（このURLのベースは `glint.json` の `publicBaseUrl`、未設定時はリクエストの `Host` ヘッダーから決定されます）。`url` を指定した場合は元データの保存は行われません。
 
 ## 使い方 (ブラウザから)
 
