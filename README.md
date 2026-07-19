@@ -183,6 +183,7 @@ PORT=3000 node src/apiServer.js
 | POST | `/api/groups/:group/documents` | 文書登録 (非同期. 即時に `jobId` を返す) |
 | DELETE | `/api/groups/:group/documents/:fileName` | 文書削除 |
 | GET | `/api/groups/:group/documents/:fileName/raw` | 元データの取得 (url自動発行時のみ) |
+| PUT | `/api/groups/:group/documents/:fileName/tags` | 登録済み文書のtag/category修正 |
 | GET | `/api/jobs/:jobId` | 文書登録ジョブの状態確認 |
 | POST | `/api/groups/:group/search` | RAG検索 (embedding検索 + 推論. 同期。`tags`/`categories` で絞り込み可) |
 | GET | `/api/groups/:group/backup` | グループのバックアップ (.vgs/.vss + 元データを1つのJSONで) |

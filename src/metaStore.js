@@ -172,6 +172,13 @@
             Array.isArray(category) && category.length > 0 ? JSON.stringify(category) : null,
             parsed ? 1 : 0,
         );
+        // documentsテーブルへの直接書き込みが行われた時点で、そのグループのdocuments
+        // データは常に最新・正の状態になる. 以後ensureDocumentsBackfilled()による
+        // legacy(.vss本文からの)再構築で上書き・消失させないよう、済み扱いにマークする.
+        db.prepare(
+            "INSERT INTO backfill_status (groupName, documentsDone) VALUES (?, 1) " +
+                "ON CONFLICT(groupName) DO UPDATE SET documentsDone = 1",
+        ).run(groupName);
     };
 
     /**

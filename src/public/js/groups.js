@@ -61,9 +61,10 @@
         }
         documentsArea.innerHTML = '<p class="hint">読み込み中...</p>';
         try {
-            const [docs, stats] = await Promise.all([
+            const [docs, stats, tagsRes] = await Promise.all([
                 callApi("GET", "/groups/" + encodeURIComponent(groupName) + "/documents"),
                 callApi("GET", "/groups/" + encodeURIComponent(groupName) + "/stats"),
+                callApi("GET", "/groups/" + encodeURIComponent(groupName) + "/tags"),
             ]);
 
             let html = "<p>文書数: " + docs.count + "</p>";
@@ -77,12 +78,44 @@
                 html += "</p>";
             }
 
+            // 許可タグ一覧が設定されているグループのみ、タグ列をselectBox化する.
+            // 未設定 (自由生成のまま) の場合は自由入力のテキストフィールドとする.
+            const allowedTags = Array.isArray(tagsRes.tags) ? tagsRes.tags : [];
+            const useSelect = allowedTags.length > 0;
+
             html += "<table><thead><tr><th>文書名</th><th>タグ</th><th>カテゴリ</th><th>URL</th><th></th></tr></thead><tbody>";
             docs.documents.forEach((d) => {
+                const currentTag = d.tag || "";
+                let tagCell;
+                if (useSelect) {
+                    // 許可タグ一覧・"その他"に加え、現在のタグがどちらにも
+                    // 含まれない場合(許可タグ変更前に登録された等)も選択肢に残す.
+                    const options = allowedTags.slice();
+                    if (options.indexOf("その他") === -1) options.push("その他");
+                    if (currentTag && options.indexOf(currentTag) === -1) {
+                        options.unshift(currentTag);
+                    }
+                    tagCell =
+                        '<select class="docTagSelect" data-doc="' + escapeHtml(d.name) + '">' +
+                        '<option value=""' + (currentTag === "" ? " selected" : "") + "></option>" +
+                        options
+                            .map(
+                                (t) =>
+                                    '<option value="' + escapeHtml(t) + '"' +
+                                    (t === currentTag ? " selected" : "") + ">" +
+                                    escapeHtml(t) + "</option>",
+                            )
+                            .join("") +
+                        "</select>";
+                } else {
+                    tagCell =
+                        '<input type="text" class="docTagInput" data-doc="' + escapeHtml(d.name) + '" ' +
+                        'value="' + escapeHtml(currentTag) + '">';
+                }
                 html +=
                     "<tr>" +
                     "<td>" + escapeHtml(d.name) + "</td>" +
-                    "<td>" + escapeHtml(d.tag || "") + "</td>" +
+                    "<td>" + tagCell + "</td>" +
                     "<td>" + escapeHtml((d.category || []).join(", ")) + "</td>" +
                     '<td><a href="' + escapeHtml(d.url) + '" target="_blank">link</a></td>' +
                     '<td><button data-doc="' + escapeHtml(d.name) + '" class="deleteDocBtn">削除</button></td>' +
@@ -91,6 +124,35 @@
             html += "</tbody></table>";
 
             documentsArea.innerHTML = html;
+
+            // タグ修正 (selectBox変更時 / テキスト入力確定時に即時保存する).
+            const saveDocTag = async function (docName, tag, category) {
+                try {
+                    await callApi(
+                        "PUT",
+                        "/groups/" + encodeURIComponent(groupName) + "/documents/" +
+                            encodeURIComponent(docName) + "/tags",
+                        { tag: tag || null, category: category },
+                    );
+                } catch (e) {
+                    alert("タグの更新に失敗しました: " + e.message);
+                    showGroupDocuments(groupName);
+                }
+            };
+            documentsArea.querySelectorAll(".docTagSelect").forEach((sel) => {
+                sel.addEventListener("change", () => {
+                    const docName = sel.getAttribute("data-doc");
+                    const doc = docs.documents.find((d) => d.name === docName);
+                    saveDocTag(docName, sel.value, (doc && doc.category) || []);
+                });
+            });
+            documentsArea.querySelectorAll(".docTagInput").forEach((inp) => {
+                inp.addEventListener("change", () => {
+                    const docName = inp.getAttribute("data-doc");
+                    const doc = docs.documents.find((d) => d.name === docName);
+                    saveDocTag(docName, inp.value.trim(), (doc && doc.category) || []);
+                });
+            });
 
             // 削除ボタンにイベントを設定する.
             documentsArea.querySelectorAll(".deleteDocBtn").forEach((btn) => {
