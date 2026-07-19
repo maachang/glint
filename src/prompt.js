@@ -30,7 +30,7 @@
 - ユーザーから提示される \`[タイトル]\` と \`[参考文書]\` に従って、文書の分類(タグ)・カテゴリ・要約(サマリー)を作成します.
   - サマリー: \`対象のタイトルと参考文書\` を適切な長さに要約して、RAGが二次利用できる形で文書内容の要点をまとめ、AIが理解しやすい内容を生成します.
   - カテゴリ: \`サマリー\` より簡潔に「1つのワードで当該文書が区分できる単語」を生成します(複数定義可能).
-  - タグ: \`カテゴリ\` より大きな分類となる「文書を特定できる分類」を1つだけ生成します. たとえば \`プログラム\` や \`生活\` や \`裁判\` や \`アウトドア\` のようにジャンル的なもので表現してください.
+  - タグ: \`カテゴリ\` より大きな分類となる「文書を特定できる分類」を1つだけ生成します. {{tagRule}}
 
 [回答形式]
 以下のように \`tag\` と \`category\` と \`summary\` は json format 出力対応（JSON.parseが行える形式）.
@@ -108,7 +108,7 @@ You are a professional Japanese editor, an expert in editing documents.
 - Based on the "[Title]" and "[Reference Document]" provided by the user, create a document classification (Tag), Category, and Summary.
   - Summary: summarize the target title and reference document to an appropriate length, capturing the key points so it can be reused by a RAG system and is easy for an AI to understand.
   - Category: more concise than the Summary — generate "a single word that classifies the document" (multiple values allowed).
-  - Tag: a broader classification than Category — generate only ONE "genre-level classification that identifies the document". For example: \`Program\`, \`Life\`, \`Lawsuit\`, \`Outdoor\`, etc.
+  - Tag: a broader classification than Category — generate only ONE "genre-level classification that identifies the document". {{tagRule}}
 
 [Answer Format]
 Output "tag", "category", and "summary" strictly as valid JSON (must be parsable by JSON.parse), formatted exactly as below.
@@ -174,20 +174,51 @@ Always write the "message" content in Japanese.
 Now, strictly follow the specified "[AI Generation Rules]" and begin your answer in Japanese.
 `.trim();
 
+    // タグ生成ルール文言 (英語版・実使用).
+    // allowedTags が空の場合は現状通り自由生成、指定時はその一覧からのみ選ばせ、
+    // 該当しない場合は "その他" とする.
+    const _buildTagRuleEN = function (allowedTags) {
+        if (!Array.isArray(allowedTags) || allowedTags.length === 0) {
+            return 'For example: `Program`, `Life`, `Lawsuit`, `Outdoor`, etc.';
+        }
+        return (
+            "Choose exactly one tag from the following fixed list (do not invent a new one): " +
+            JSON.stringify(allowedTags) +
+            '. If none of them fit the document, use "その他".'
+        );
+    };
+
+    // タグ生成ルール文言 (日本語版・参考).
+    const _buildTagRuleJA = function (allowedTags) {
+        if (!Array.isArray(allowedTags) || allowedTags.length === 0) {
+            return "たとえば `プログラム` や `生活` や `裁判` や `アウトドア` のようにジャンル的なもので表現してください.";
+        }
+        return (
+            "以下の固定リストの中から最も適切な1つを選んでください（新規のタグは作成しないこと）: " +
+            JSON.stringify(allowedTags) +
+            " どれにも該当しない場合は「その他」としてください."
+        );
+    };
+
     /**
      * サマリー問い合わせプロンプト (system/user) を生成して返す.
      *
      * user プロンプトの {{fileName}} {{text}} を置き換える.
      * 実際に使用するプロンプト本文は英語版 (高速化のため).
      *
-     * @param  {string} fileName  対象のファイル名.
-     * @param  {string} text      要約対象のテキスト
+     * @param  {string}   fileName     対象のファイル名.
+     * @param  {string}   text         要約対象のテキスト
+     * @param  {string[]} [allowedTags] グループ単位で許可するタグ一覧 (省略/空配列 = 自由生成).
      * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
      */
-    const getSummaryRequest = function (fileName, text) {
+    const getSummaryRequest = function (fileName, text, allowedTags) {
         fileName = fileName || "";
         return {
-            system: SUMMARY_REQUEST_SYSTEM_PROMPT_EN,
+            system: Conv.keyValueTemplate(
+                SUMMARY_REQUEST_SYSTEM_PROMPT_EN,
+                "tagRule",
+                _buildTagRuleEN(allowedTags),
+            ),
             user: Conv.keyValueTemplate(
                 SUMMARY_REQUEST_USER_PROMPT_EN,
                 "fileName",

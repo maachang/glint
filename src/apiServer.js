@@ -11,6 +11,8 @@
  *   GET    /api/groups                             グループ一覧
  *   GET    /api/groups/:group/documents             グループ内の文書一覧・文書数
  *   GET    /api/groups/:group/stats                 グループ内の tag/category 集計 (件数・比率)
+ *   GET    /api/groups/:group/tags                  グループ単位の許可タグ一覧取得 (空=制限なし)
+ *   PUT    /api/groups/:group/tags                  グループ単位の許可タグ一覧設定
  *   POST   /api/groups/:group/documents             文書登録 (非同期. 即時にjobIdを返す)
  *   DELETE /api/groups/:group/documents/:fileName  文書削除
  *   GET    /api/groups/:group/documents/:fileName/raw  元データの取得 (url自動発行時のみ有効)
@@ -653,6 +655,26 @@
         _sendJson(res, 200, stats);
     };
 
+    // GET /api/groups/:group/tags
+    // グループ単位で許可されているタグ一覧を取得する (空配列 = 制限なし・自由生成).
+    const _handleGetAllowedTags = async function (req, res, groupName) {
+        const tags = await vg.getAllowedTags(groupName);
+        _sendJson(res, 200, { tags });
+    };
+
+    // PUT /api/groups/:group/tags
+    // body: { tags: string[] }
+    // グループ単位で許可するタグ一覧を設定する (空配列を設定すると制限なしに戻る).
+    const _handleSetAllowedTags = async function (req, res, groupName) {
+        const body = await _readJsonBody(req);
+        if (!Array.isArray(body.tags)) {
+            _sendError(res, 400, "tags (Array<string>) is required in the request body.");
+            return;
+        }
+        await vg.setAllowedTags(groupName, body.tags);
+        _sendJson(res, 200, { group: groupName, tags: body.tags });
+    };
+
     // ═══════════════════════════════════════════════════════════════
     // バックアップ / レストア.
     // ═══════════════════════════════════════════════════════════════
@@ -898,6 +920,26 @@
             seg[2] === "stats"
         ) {
             await _handleGroupStats(req, res, seg[1]);
+            return;
+        }
+        // GET /api/groups/:group/tags
+        if (
+            req.method === "GET" &&
+            seg.length === 3 &&
+            seg[0] === "groups" &&
+            seg[2] === "tags"
+        ) {
+            await _handleGetAllowedTags(req, res, seg[1]);
+            return;
+        }
+        // PUT /api/groups/:group/tags
+        if (
+            req.method === "PUT" &&
+            seg.length === 3 &&
+            seg[0] === "groups" &&
+            seg[2] === "tags"
+        ) {
+            await _handleSetAllowedTags(req, res, seg[1]);
             return;
         }
         // POST /api/groups/:group/search

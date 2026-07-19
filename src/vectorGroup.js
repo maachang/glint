@@ -69,8 +69,14 @@
     /** VectorGroup ファイルの拡張子 */
     const VECTOR_GROUP_FILE_EXTENSION = ".vgs";
 
-    /** .vss ファイルの先頭に書き込むシンボル文字列 (4 バイト固定) */
+    /** .vss ファイルの先頭に書き込むシンボル文字列 (4 バイト固定, 旧形式: allowedTags無し) */
     const VECTOR_SUMMARY_FILE_SYMBOL = "@vss";
+
+    /**
+     * .vss ファイルの先頭に書き込むシンボル文字列 (4 バイト固定, 新形式: allowedTags有り).
+     * 新規保存時は常にこちらを使用する. 旧形式("@vss")は読み込み時のみ後方互換で対応する.
+     */
+    const VECTOR_SUMMARY_FILE_SYMBOL_V2 = "@vs2";
 
     /** VectorSummary ファイルの拡張子 */
     const VECTOR_SUMMARY_FILE_EXTENSION = ".vss";
@@ -740,7 +746,10 @@
      * [private]バイナリ (Buffer) から VectorSummary をデシリアライズする.
      *
      * 【バイナリフォーマット (.vss)】
-     *   [4 bytes] シンボル "@vss" (UTF-8)
+     *   [4 bytes] シンボル "@vs2" (UTF-8, 新形式) または "@vss" (UTF-8, 旧形式)
+     *   "@vs2" の場合のみ以下を追加で持つ (旧形式"@vss"には無い):
+     *     [3 bytes] allowedTags の JSON文字列のバイト長 (uint24)
+     *     [N bytes] allowedTags の JSON文字列 (UTF-8, 例: '["法律","プログラム"]')
      *   [3 bytes] エントリ総数 (uint24)
      *   以下をエントリ数分繰り返す:
      *     [2 bytes] 文書名のバイト長 (uint16)
@@ -758,12 +767,23 @@
     const _loadSummaryFromBinary = function (binary) {
         const bd = new DecodeBinary(binary);
 
-        // シンボル確認
-        if (bd.getString(SYMBOL_SIZE) !== VECTOR_SUMMARY_FILE_SYMBOL) {
+        // シンボル確認 (新形式 "@vs2" / 旧形式 "@vss" のいずれかを許容).
+        const symbol = bd.getString(SYMBOL_SIZE);
+        let allowedTags = [];
+        if (symbol === VECTOR_SUMMARY_FILE_SYMBOL_V2) {
+            // 新形式のみ allowedTags ブロックを持つ.
+            try {
+                const tagsJson = bd.getString(bd.getUInt3());
+                const parsed = JSON.parse(tagsJson);
+                allowedTags = Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                allowedTags = [];
+            }
+        } else if (symbol !== VECTOR_SUMMARY_FILE_SYMBOL) {
             throw new Error("Not a VectorSummary file symbol");
         }
 
-        const ret = new VectorSummary();
+        const ret = new VectorSummary(undefined, allowedTags);
         const allLen = bd.getUInt3();
 
         for (let i = 0; i < allLen; i++) {
@@ -812,8 +832,13 @@
         const names = summary.getDocuments();
         const parts = [];
 
-        // シンボル + エントリ総数
-        parts.push(EncodeBinary.getString(VECTOR_SUMMARY_FILE_SYMBOL));
+        // シンボル (新形式) + allowedTags + エントリ総数
+        parts.push(EncodeBinary.getString(VECTOR_SUMMARY_FILE_SYMBOL_V2));
+        const tagsBin = EncodeBinary.getString(
+            JSON.stringify(summary.getAllowedTags()),
+        );
+        parts.push(EncodeBinary.getInt3(tagsBin.length));
+        parts.push(tagsBin);
         parts.push(EncodeBinary.getInt3(names.length));
 
         for (let i = 0; i < names.length; i++) {
@@ -1127,10 +1152,26 @@
             // - summary: 対象文書のサマリー的内容
             // これらを踏まえて、RAG検索に対して影響力強化を与える.
 
+            // グループ単位の許可タグ一覧を取得 (新規グループ等、未存在の場合は
+            // 制限なし=自由生成のまま扱う).
+            let allowedTags = [];
+            try {
+                allowedTags = _loadVectorSummary(
+                    groupName,
+                    dirPath,
+                ).getAllowedTags();
+            } catch (e) {
+                allowedTags = [];
+            }
+
             let tm = Date.now();
             // debug.
             console.debug("start.getInferenceMessage(" + textFileName + ")");
-            const sumPrompt = Prompt.getSummaryRequest(textDocName, text);
+            const sumPrompt = Prompt.getSummaryRequest(
+                textDocName,
+                text,
+                allowedTags,
+            );
             let sumTxt = await LlamaCpp.getInferenceMessage(
                 ifBaseUrl,
                 sumPrompt.system,
@@ -2082,6 +2123,50 @@
         }
     };
 
+    /**
+     * グループ単位で許可されているタグ一覧を取得する.
+     * 未設定 (空配列) の場合、文書登録時のタグはLLMが自由に生成する.
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param  {string}   groupName  グループ名
+     * @param  {string}   dirPath    [*]ディレクトリパス
+     * @return {Promise<string[]>}
+     */
+    const getAllowedTags = async function (groupName, dirPath) {
+        dirPath = _getVectorStoreDir(dirPath);
+        const pg = _trimPathGroup(dirPath, groupName);
+        const lockUk = await sync.lock(pg.groupName);
+        try {
+            const summary = _loadVectorSummary(pg.groupName, pg.path);
+            return summary.getAllowedTags();
+        } finally {
+            sync.unlock(pg.groupName, lockUk);
+        }
+    };
+
+    /**
+     * グループ単位で許可するタグ一覧を設定する.
+     * 空配列を設定した場合は制限なし (LLMが自由にタグを生成する) に戻る.
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param {string}   groupName  グループ名
+     * @param {string[]} tags       許可するタグ一覧
+     * @param {string}   dirPath    [*]ディレクトリパス
+     */
+    const setAllowedTags = async function (groupName, tags, dirPath) {
+        dirPath = _getVectorStoreDir(dirPath);
+        const pg = _trimPathGroup(dirPath, groupName);
+        groupName = pg.groupName;
+        const lockUk = await sync.lock(groupName);
+        try {
+            const summary = _loadVectorSummary(groupName, pg.path);
+            summary.setAllowedTags(tags);
+            _saveSummary(groupName, summary, pg.path);
+        } finally {
+            sync.unlock(groupName, lockUk);
+        }
+    };
+
     // ========================================================
     // モジュールエクスポート
     // ========================================================
@@ -2104,5 +2189,7 @@
         parseSummaryJson: _resultSummayToJson,
         exportGroupFiles,
         importGroupFiles,
+        getAllowedTags,
+        setAllowedTags,
     };
 })();

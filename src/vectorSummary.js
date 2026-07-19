@@ -70,13 +70,39 @@
          *   省略した場合は空の Map から始まる.
          *   通常は省略して new VectorSummary() で生成し、put() で追加する.
          */
-        constructor(map) {
+        /**
+         * @param {Map<string, VSummaryValue>} [map]
+         * @param {string[]} [allowedTags]
+         *   グループ単位で許可するタグ一覧 (空配列 = 制限なし、LLMが自由にタグを生成する).
+         *   文書登録時のタグ生成プロンプト (prompt.js の getSummaryRequest) に渡され、
+         *   設定されている場合はこの一覧から選ばせる (該当しない場合は "その他").
+         */
+        constructor(map, allowedTags) {
             /**
              * @type {Map<string, VSummaryValue>}
              * キー: 文書名 (docName, 拡張子なし)
              * 値  : VSummaryValue
              */
             this._map = map instanceof Map ? map : new Map();
+
+            /** @type {string[]} グループ単位で許可するタグ一覧 (空配列 = 制限なし) */
+            this._allowedTags = Array.isArray(allowedTags) ? allowedTags : [];
+        }
+
+        /**
+         * グループ単位で許可するタグ一覧を返す.
+         * @return {string[]}
+         */
+        getAllowedTags() {
+            return this._allowedTags;
+        }
+
+        /**
+         * グループ単位で許可するタグ一覧を設定する.
+         * @param {string[]} tags
+         */
+        setAllowedTags(tags) {
+            this._allowedTags = Array.isArray(tags) ? tags : [];
         }
 
         /**
