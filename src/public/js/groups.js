@@ -22,6 +22,11 @@
     // 編集中の許可タグ一覧 (保存ボタン押下時にPUTする).
     let allowedTagsDraft = [];
 
+    // 前回入力値の復元・自動保存.
+    // groupSelectの復元はrefreshGroups()より前に行う (refreshGroups内の
+    // _fillGroupOptions()が現在の選択値を維持する仕組みを利用するため).
+    window.Glint.bindPersistentInputs(["groupSelect", "newGroupName"]);
+
     // 指定した <select> の内容を、現在の選択値を維持しつつグループ一覧で置き換える.
     const _fillGroupOptions = function (selectEl, groups) {
         const current = selectEl.value;

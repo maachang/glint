@@ -30,4 +30,26 @@ window.Glint = window.Glint || {};
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;");
     };
+
+    // 指定した入力要素の値を localStorage に自動保存し、ページを開いた際に復元する.
+    // キーはページのパス+要素idで構成する (ページごとに独立して保持される).
+    // file入力 (アップロードファイル) は値を復元できないため対象外.
+    Glint.bindPersistentInputs = function (ids) {
+        ids.forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el || el.type === "file") return;
+
+            const key = "glint:" + location.pathname + ":" + id;
+            const saved = localStorage.getItem(key);
+            if (saved !== null) {
+                el.value = saved;
+            }
+
+            const eventName =
+                el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input";
+            el.addEventListener(eventName, () => {
+                localStorage.setItem(key, el.value);
+            });
+        });
+    };
 })(window.Glint);

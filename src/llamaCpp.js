@@ -79,6 +79,41 @@
     };
 
     /**
+     * [private]複数のAbortSignalを1つに合成する.
+     *
+     * Node.js 18 では AbortSignal.any() が使えないため、代わりに
+     * 新しいAbortControllerを作り、渡されたsignalのいずれかがabortしたら
+     * それに追従してabortする形で合成する.
+     *
+     * @param  {Array<AbortSignal|undefined|null>} signals
+     * @return {AbortSignal|undefined}  有効なsignalが1つも無い場合は undefined.
+     */
+    const _combineSignals = function (signals) {
+        const valid = signals.filter(Boolean);
+        if (valid.length === 0) {
+            return undefined;
+        }
+        if (valid.length === 1) {
+            return valid[0];
+        }
+        const controller = new AbortController();
+        for (let i = 0; i < valid.length; i++) {
+            if (valid[i].aborted) {
+                controller.abort(valid[i].reason);
+                break;
+            }
+            valid[i].addEventListener(
+                "abort",
+                function () {
+                    controller.abort(valid[i].reason);
+                },
+                { once: true },
+            );
+        }
+        return controller.signal;
+    };
+
+    /**
      * llama.cpp サーバーに JSON をボディとして POST し、レスポンスを返す内部関数.
      *
      * 【エラーハンドリング】
@@ -90,10 +125,13 @@
      * @param  {Object}  body         POST ボディ (JSON シリアライズ前の Object)
      * @param  {boolean} [rawText]    true の場合、JSON パースせずに文字列のまま返す
      * @param  {string}  [apiKey]     指定時は Authorization: Bearer {apiKey} ヘッダーを送信する.
+     * @param  {AbortSignal} [signal] 指定時、これが abort された場合もリクエストを中断する
+     *                                (呼び出し元のクライアント切断等で中断させるための口).
+     *                                内部のタイムアウト用signalとは合成して両方を有効にする.
      * @return {Promise<Object|string>}  レスポンスの JSON オブジェクト (rawText=true の場合は文字列)
      * @throws {Error}   HTTP エラーまたはレスポンスに error フィールドが含まれる場合
      */
-    const _fetch = async function (baseUrl, endpoint, body, rawText, apiKey) {
+    const _fetch = async function (baseUrl, endpoint, body, rawText, apiKey, signal) {
         const conf = Config.getInstance();
         const url = _buildUrl(baseUrl, endpoint);
         const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
@@ -108,7 +146,11 @@
             method: "POST",
             headers: headers,
             body: bodyStr,
-            signal: AbortSignal.timeout(conf.fetchTimeout), // タイムアウト設定.
+            // タイムアウト用signalと、呼び出し元から渡された中断用signalを合成する.
+            signal: _combineSignals([
+                AbortSignal.timeout(conf.fetchTimeout),
+                signal,
+            ]),
             keepalive: true,
         });
 
@@ -168,10 +210,11 @@
      *                                       (llama.cpp の単一モデル運用向け).
      *                                       OpenAI / ルーターモードでは必須.
      * @param  {string}             [apiKey] Authorization: Bearer ヘッダーに使うAPIキー.
+     * @param  {AbortSignal}        [signal] 指定時、これがabortされたらリクエストを中断する.
      * @return {Promise<Float32Array>}       埋め込みベクトル
      * @throws {Error}              サーバーエラーまたはレスポンス構造が不正な場合
      */
-    const getEmbedding = async function (baseUrl, text, model, apiKey) {
+    const getEmbedding = async function (baseUrl, text, model, apiKey, signal) {
         var body = {
             input: text,
             stream: false,
@@ -181,7 +224,7 @@
             body.model = model;
         }
 
-        var result = await _fetch(baseUrl, "v1/embeddings", body, false, apiKey);
+        var result = await _fetch(baseUrl, "v1/embeddings", body, false, apiKey, signal);
 
         // レスポンスから data[0].embedding を取り出す
         var list = Conv.getList(Conv.getMap(result)["data"]);
@@ -237,6 +280,7 @@
      *                                (llama.cpp の単一モデル運用向け).
      *                                OpenAI / ルーターモードでは必須.
      * @param  {string}  [apiKey]     Authorization: Bearer ヘッダーに使うAPIキー.
+     * @param  {AbortSignal} [signal] 指定時、これがabortされたらリクエストを中断する.
      * @return {Promise<Object>}      /v1/chat/completions のレスポンス JSON
      * @throws {Error}   サーバーエラーの場合
      */
@@ -249,6 +293,7 @@
         reasoning,
         model,
         apiKey,
+        signal,
     ) {
         // systemPrompt が未設定の場合は system メッセージ自体を含めない.
         var messages =
@@ -288,7 +333,7 @@
         if (model) {
             body.model = model;
         }
-        return _fetch(baseUrl, "v1/chat/completions", body, false, apiKey);
+        return _fetch(baseUrl, "v1/chat/completions", body, false, apiKey, signal);
     };
 
     /**
@@ -326,6 +371,7 @@
      *                                     の場合は true にしても変更されないので注意が必要です.
      * @param  {string}  [model]      リクエストボディに含める model 名 (省略時は含めない).
      * @param  {string}  [apiKey]     Authorization: Bearer ヘッダーに使うAPIキー.
+     * @param  {AbortSignal} [signal] 指定時、これがabortされたらリクエストを中断する.
      * @return {Promise<string>}      LLM が生成した回答テキスト
      * @throws {Error}   サーバーエラーの場合
      */
@@ -338,6 +384,7 @@
         reasoning,
         model,
         apiKey,
+        signal,
     ) {
         var res = await getInference(
             baseUrl,
@@ -348,6 +395,7 @@
             reasoning,
             model,
             apiKey,
+            signal,
         );
         return getResultInferenceToText(res);
     };

@@ -12,6 +12,9 @@
     const searchTagSelect = document.getElementById("searchTagSelect");
     const addSearchTagBtn = document.getElementById("addSearchTagBtn");
 
+    // 前回入力値の復元・自動保存.
+    window.Glint.bindPersistentInputs(["searchGroupName", "searchMessage", "searchTags"]);
+
     // ─── Markdown表示 (RAG検索結果) ───────────────────────
 
     // marked.js が生成したHTMLをそのまま innerHTML に入れると、LLMの回答に

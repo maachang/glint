@@ -881,10 +881,25 @@
             _sendError(res, 400, "message is required in the request body.");
             return;
         }
+        // クライアントが切断(ページ遷移・リロード・タブクローズ等)した場合に、
+        // llama.cppへの埋め込み/推論リクエストを中断させるためのsignal.
+        // これが無いと、切断後も応答(または5分のタイムアウト)まで処理・接続スロット
+        // 占有が続いてしまう.
+        // ※ req(IncomingMessage)の"close"は、リクエストボディを読み終えた時点
+        //   (_readJsonBody完了時)で切断とは無関係にほぼ即時発火してしまうため、
+        //   誤検知になる. res(ServerResponse)の"close"は、正常応答完了後 or
+        //   クライアント切断による premature close の両方で発火するが、応答完了後の
+        //   発火はabort()を呼んでも無害 (既にPromiseが解決済みのため) なので、
+        //   これを使う.
+        const abortController = new AbortController();
+        res.on("close", () => {
+            abortController.abort();
+        });
         // options に tags/categories をマージする (options 側の指定を優先).
         const options = Object.assign(
             { tags: body.tags, categories: body.categories },
             body.options,
+            { signal: abortController.signal },
         );
         const vgObj = await vg.loadVectorGroup(groupName);
         const result = await vg.search(vgObj, message, options);
@@ -1081,6 +1096,13 @@
             });
             _route(req, res).catch((e) => {
                 console.error("#apiServer error: " + e.message);
+                // クライアント切断 (req.on("close")によるAbortController.abort()等) 由来の
+                // 例外の場合、既にres側も書き込み不能になっている可能性があるため、
+                // その場合は書き込みを試みない (ここでres.writeHead()を呼ぶと
+                // 例外が発生し、キャッチされないPromise rejectionになりかねないため).
+                if (res.writableEnded || res.destroyed) {
+                    return;
+                }
                 _sendError(res, 503, e.message);
             });
         });

@@ -8,6 +8,9 @@
     const putDocumentForm = document.getElementById("putDocumentForm");
     const putStatus = document.getElementById("putStatus");
 
+    // 前回入力値の復元・自動保存 (PDFファイル欄は復元不可のため対象外).
+    window.Glint.bindPersistentInputs(["putGroupName", "putFileName", "putUrl", "putText"]);
+
     // ファイルを base64 文字列として読み込む.
     const readFileAsBase64 = function (file) {
         return new Promise((resolve, reject) => {

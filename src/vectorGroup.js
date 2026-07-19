@@ -1646,6 +1646,8 @@
      *   - {boolean}         hybridSearch   キーワードスコア(文字2-gram)をコサイン類似度に
      *                                      合成するハイブリッド検索のON/OFF (デフォルト: conf.hybridSearch).
      *   - {number}          hybridKeywordWeight  キーワードスコアの重み (0〜1, デフォルト: conf.hybridKeywordWeight).
+     *   - {AbortSignal}     signal         指定時、これがabortされたら埋め込みリクエストを中断する
+     *                                      (クライアント切断検知等での中断用).
      * @return {Promise<VectorChunk[]>}     スコア降順にソートされた結果配列
      */
     const searchEmbedding = async function (vg, message, options) {
@@ -1665,6 +1667,8 @@
         let hybridKeywordWeight = hybridSearch
             ? options.hybridKeywordWeight || conf.hybridKeywordWeight
             : 0;
+        // クライアント切断等で中断させたい場合に、呼び出し元から渡されるsignal.
+        let signal = options.signal || undefined;
 
         // embBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let embObj = null;
@@ -1696,6 +1700,7 @@
                     chunks[i],
                     embObj && embObj.model,
                     embObj && embObj.apiKey,
+                    signal,
                 );
                 // VectorGroup からベクトルに近い上位 length 件を取得 (絞り込み済み候補が対象)
                 resLen = vg.searchEmbedding(
@@ -1890,6 +1895,7 @@
      * @param {*}       ifObj          接続情報 (model/apiKey取得用, nullの場合は指定なし).
      * @param {number}  candidateLen   リランキング対象とする件数の上限.
      * @param {boolean} ragReasoning   推論モードのON/OFF (RAG本回答と同じ設定を使う).
+     * @param {AbortSignal} [signal]   指定時、これがabortされたら推論を中断する.
      * @returns {Promise<Array>} 並び替え後の targetList.
      */
     const _rerankTargetList = async function (
@@ -1899,6 +1905,7 @@
         ifObj,
         candidateLen,
         ragReasoning,
+        signal,
     ) {
         candidateLen = Math.min(targetList.length, candidateLen);
         // 対象が1件以下の場合、並び替える意味が無い.
@@ -1923,6 +1930,7 @@
                 ragReasoning,
                 ifObj && ifObj.model,
                 ifObj && ifObj.apiKey,
+                signal,
             );
         } catch (e) {
             console.warn("#リランキング推論に失敗: " + e.message);
@@ -1985,6 +1993,8 @@
      *                         関連度順に並び替えるかどうか (デフォルト: conf.ragRerank = true).
      *   - {number} rerankCandidateLength リランキング対象とする候補文書数の上限
      *                                    (デフォルト: conf.rerankCandidateLength).
+     *   - {AbortSignal} signal 指定時、これがabortされたら推論を中断する
+     *                          (クライアント切断検知等での中断用).
      * @return {Promise<{message: string, list: Array<{name:string,url:string}>}>}
      *         回答本文(message)と引用した参考文書一覧(list)が返却されます.
      */
@@ -2002,6 +2012,7 @@
             options.ragReasoning == true || options.ragReasoning == false
                 ? options.ragReasoning
                 : conf.ragReasoning;
+        let signal = options.signal || undefined;
         let ragRerank =
             options.ragRerank == true || options.ragRerank == false
                 ? options.ragRerank
@@ -2051,6 +2062,7 @@
                     ifObj,
                     rerankCandidateLength,
                     ragReasoning,
+                    signal,
                 );
             }
 
@@ -2109,6 +2121,7 @@
                 ragReasoning,
                 ifObj && ifObj.model,
                 ifObj && ifObj.apiKey,
+                signal,
             );
             // AI回答の文字列に</think>が設定されている場合.
             // この文字以降のものだけを採用する.
@@ -2158,6 +2171,8 @@
      *                         関連度順に並び替えるかどうか (デフォルト: conf.ragRerank = true).
      *   - {number} rerankCandidateLength リランキング対象とする候補文書数の上限
      *                                    (デフォルト: conf.rerankCandidateLength).
+     *   - {AbortSignal} signal 指定時、これがabortされたら埋め込み・推論を中断する
+     *                          (クライアント切断検知等での中断用).
      * @return {Promise<{message: string, list: Array<{name:string,url:string}>}>}
      *         回答本文(message)と引用した参考文書一覧(list)が返却されます.
      */
