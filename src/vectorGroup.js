@@ -1730,6 +1730,159 @@
     };
 
     /**
+     * [private]リランキング結果のJSON文字列 ({order: string[]}) をパースする.
+     * @param {string} resTxt LLMからの回答文字列.
+     * @returns {string[]|null} パースに失敗した場合は null.
+     */
+    const _rerankResultToJson = function (resTxt) {
+        resTxt = resTxt.trim();
+
+        let ep;
+        if (resTxt.startsWith("~~~json")) {
+            ep = resTxt.indexOf("~~~", 7);
+            if (ep == -1) {
+                return null;
+            }
+        } else if (resTxt.startsWith("```json")) {
+            ep = resTxt.indexOf("```", 7);
+            if (ep == -1) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+        try {
+            const jsonTxt = resTxt.substring(7, ep).trim();
+            const jsonValue = Conv.parseJson(jsonTxt);
+            if (!Array.isArray(jsonValue["order"])) {
+                return null;
+            }
+            return jsonValue["order"];
+        } catch (e) {
+            console.warn("#リランキング結果のjsonパースに失敗: " + resTxt);
+        }
+        return null;
+    };
+
+    /**
+     * [private]候補文書一覧(targetList)からリランキング用の候補文書一覧テキストを組み立てる.
+     * @param {Array} targetList  docName単位でグルーピングされた検索結果.
+     * @param {number} candidateLen  対象とする件数 (先頭からこの件数分).
+     * @returns {string}
+     */
+    const _buildRerankCandidatesText = function (targetList, candidateLen) {
+        let text = "";
+        let vc, docName, rawSummary, parsed, summaryText;
+        for (let i = 0; i < candidateLen; i++) {
+            vc = targetList[i][0];
+            docName = vc.docName;
+            rawSummary = vc.summary.getText(docName);
+            parsed = _resultSummayToJson(rawSummary);
+            summaryText =
+                parsed != null && typeof parsed.summary === "string"
+                    ? parsed.summary
+                    : rawSummary;
+            text +=
+                (i + 1) + ". name: " + docName + "\n   summary: " + summaryText + "\n";
+        }
+        return text;
+    };
+
+    /**
+     * [private]候補文書一覧(targetList)をLLMで質問との関連度順にリランキングする.
+     *
+     * targetList のうち先頭 candidateLen 件のみをリランキング対象とし、それを
+     * 超える分は元の順序のまま後方に維持する. LLM推論の失敗・JSONパース失敗など
+     * 何らかの理由でリランキングできない場合は、元の targetList をそのまま返す
+     * (安全側にフォールバックし、検索結果が失われることはない).
+     *
+     * @param {Array}   targetList     docName単位でグルーピングされた検索結果 (ベクトルスコア順).
+     * @param {string}  message        ユーザーの質問文.
+     * @param {string}  ifBaseUrl      推論モデルサーバーのURL.
+     * @param {*}       ifObj          接続情報 (model/apiKey取得用, nullの場合は指定なし).
+     * @param {number}  candidateLen   リランキング対象とする件数の上限.
+     * @param {boolean} ragReasoning   推論モードのON/OFF (RAG本回答と同じ設定を使う).
+     * @returns {Promise<Array>} 並び替え後の targetList.
+     */
+    const _rerankTargetList = async function (
+        targetList,
+        message,
+        ifBaseUrl,
+        ifObj,
+        candidateLen,
+        ragReasoning,
+    ) {
+        candidateLen = Math.min(targetList.length, candidateLen);
+        // 対象が1件以下の場合、並び替える意味が無い.
+        if (candidateLen <= 1) {
+            return targetList;
+        }
+
+        const candidatesText = _buildRerankCandidatesText(
+            targetList,
+            candidateLen,
+        );
+        const rerankPrompt = Prompt.getRerankRequest(candidatesText, message);
+
+        let ret;
+        try {
+            ret = await LlamaCpp.getInferenceMessage(
+                ifBaseUrl,
+                rerankPrompt.system,
+                rerankPrompt.user,
+                0.1,
+                null,
+                ragReasoning,
+                ifObj && ifObj.model,
+                ifObj && ifObj.apiKey,
+            );
+        } catch (e) {
+            console.warn("#リランキング推論に失敗: " + e.message);
+            return targetList;
+        }
+
+        // AI回答の文字列に</think>が設定されている場合、この文字以降のものだけを採用する.
+        const p = ret.indexOf("</think>");
+        if (p != -1) {
+            ret = ret.substring(p + 8).trim();
+        }
+
+        const order = _rerankResultToJson(ret);
+        if (order == null) {
+            // パース失敗時は元の順序のまま (フォールバック).
+            return targetList;
+        }
+
+        // docName -> 候補範囲内のグループ のマップを作成.
+        const byDocName = new Map();
+        for (let i = 0; i < candidateLen; i++) {
+            byDocName.set(targetList[i][0].docName, targetList[i]);
+        }
+
+        const reordered = [];
+        const used = new Set();
+        for (let i = 0; i < order.length; i++) {
+            const group = byDocName.get(order[i]);
+            if (group != undefined && !used.has(order[i])) {
+                reordered.push(group);
+                used.add(order[i]);
+            }
+        }
+        // LLMが言及しなかった候補は、元の順序のまま後方に追加する.
+        for (let i = 0; i < candidateLen; i++) {
+            const docName = targetList[i][0].docName;
+            if (!used.has(docName)) {
+                reordered.push(targetList[i]);
+            }
+        }
+        // 候補上限(candidateLen)を超えた分は、元の順序のまま維持する.
+        for (let i = candidateLen; i < targetList.length; i++) {
+            reordered.push(targetList[i]);
+        }
+        return reordered;
+    };
+
+    /**
      * searchEmbedding での検索結果を設定して、Rag検索を実行.
      *
      * @param {VectorChunk[]} resSearchEmb [searchEmbedding] の処理結果を設定します.
@@ -1740,6 +1893,10 @@
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
+     *   - {boolean} ragRerank RAGプロンプトに含める前に、候補文書をLLMで質問との
+     *                         関連度順に並び替えるかどうか (デフォルト: conf.ragRerank = true).
+     *   - {number} rerankCandidateLength リランキング対象とする候補文書数の上限
+     *                                    (デフォルト: conf.rerankCandidateLength).
      * @return {Promise<{message: string, list: Array<{name:string,url:string}>}>}
      *         回答本文(message)と引用した参考文書一覧(list)が返却されます.
      */
@@ -1757,6 +1914,12 @@
             options.ragReasoning == true || options.ragReasoning == false
                 ? options.ragReasoning
                 : conf.ragReasoning;
+        let ragRerank =
+            options.ragRerank == true || options.ragRerank == false
+                ? options.ragRerank
+                : conf.ragRerank;
+        let rerankCandidateLength =
+            options.rerankCandidateLength || conf.rerankCandidateLength;
 
         // ifBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let ifObj = null;
@@ -1770,7 +1933,7 @@
 
             // まず同一のDoc名の検索結果(resSearchEmb)をまとめる.
             // 内容としては点数順
-            const targetList = [];
+            let targetList = [];
             const targetDocNameIndex = {};
 
             // 同一のDoc名で検索結果の内容をまとめる.
@@ -1787,6 +1950,20 @@
                 }
                 // 取得リストに追加していく
                 embList[embList.length] = em;
+            }
+
+            // リランキング: RAGプロンプトに含める前に、質問との関連度順に
+            // 候補文書(targetList)をLLMで並び替える (デフォルトON, conf.ragRerank).
+            // ベクトルスコア順だけでは質問との関連性を正しく反映できない場合を補正する.
+            if (ragRerank) {
+                targetList = await _rerankTargetList(
+                    targetList,
+                    message,
+                    ifBaseUrl,
+                    ifObj,
+                    rerankCandidateLength,
+                    ragReasoning,
+                );
             }
 
             // 検索候数件数を取得.
@@ -1889,6 +2066,10 @@
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
+     *   - {boolean} ragRerank RAGプロンプトに含める前に、候補文書をLLMで質問との
+     *                         関連度順に並び替えるかどうか (デフォルト: conf.ragRerank = true).
+     *   - {number} rerankCandidateLength リランキング対象とする候補文書数の上限
+     *                                    (デフォルト: conf.rerankCandidateLength).
      * @return {Promise<{message: string, list: Array<{name:string,url:string}>}>}
      *         回答本文(message)と引用した参考文書一覧(list)が返却されます.
      */

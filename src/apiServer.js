@@ -710,6 +710,8 @@
             vectorSearchLength: conf.vectorSearchLength,
             ragRequestChunkLength: conf.ragRequestChunkLength,
             ragReasoning: conf.ragReasoning,
+            ragRerank: conf.ragRerank,
+            rerankCandidateLength: conf.rerankCandidateLength,
             lockTimeout: conf.lockTimeout,
             logDir: conf.logDir,
             logFile: conf.logFile,

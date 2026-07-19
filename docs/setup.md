@@ -96,6 +96,10 @@ npm install
     "ragRequestChunkLength": 7,
     "ragRequestChunkFormat": "- {{no}} 参考文書名: {{name}}, ...",
     "ragReasoning": null,
+    // 候補文書をLLMで質問との関連度順に並び替える (リランキング). デフォルトON.
+    "ragRerank": true,
+    // リランキング対象とする候補文書数の上限.
+    "rerankCandidateLength": 20,
 
     // ─── プロセス間ロック ────────────────────────────────
     // sync.js のロック待ちタイムアウト (ミリ秒, -1=無限待ち).
@@ -139,6 +143,8 @@ npm install
 | `ragRequestChunkLength` | `7` | RAGプロンプトに含めるチャンク数 |
 | `ragRequestChunkFormat` | (既定テンプレート) | 1チャンク分のプロンプト整形フォーマット |
 | `ragReasoning` | `null` | RAG推論時の推論モード on/off/未指定 |
+| `ragRerank` | `true` | 候補文書をLLMで質問との関連度順に並び替える(リランキング)かどうか |
+| `rerankCandidateLength` | `20` | リランキング対象とする候補文書数の上限 |
 | `lockTimeout` | `-1` | ロック待ちタイムアウト (-1=無限待ち) |
 | `logDir` | `"./log"` | ローカルログの出力先ディレクトリ |
 | `logFile` | `"logout"` | ローカルログのファイル名 (拡張子抜き) |

@@ -108,6 +108,12 @@
     /** RAG リクエストに含めるチャンク数のデフォルト値 */
     const DEFAULT_RAG_REQUEST_CHANK_LENGTH = 7;
 
+    /** RAGのリランキング(LLMによる候補文書の再順位付け) のデフォルト値 (常時ON) */
+    const DEFAULT_RAG_RERANK = true;
+
+    /** リランキング対象とする候補文書数の上限デフォルト値 */
+    const DEFAULT_RERANK_CANDIDATE_LENGTH = 20;
+
     /**
      * RAG リクエスト内の 1 チャンク分プロンプトフォーマットのデフォルト値.
      *
@@ -429,6 +435,21 @@
             this.ragRequestChunkFormat = DEFAULT_RAG_REQUEST_CHUNK_FORMAT;
 
             /**
+             * RAGのリランキング(LLMによる候補文書の再順位付け)のOn/Offを設定します.
+             * ベクトル検索で絞られた候補文書に対し、RAGプロンプトに含める前に
+             * LLMで質問との関連度順に並び替える. デフォルトON. 追加のLLM推論が
+             * 1回発生するため、レイテンシ・コストを避けたい場合は false にする.
+             */
+            this.ragRerank = DEFAULT_RAG_RERANK;
+
+            /**
+             * リランキング対象とする候補文書数の上限.
+             * 候補文書 (targetList) がこの件数を超える場合、ベクトルスコア上位からこの
+             * 件数までをリランキング対象とし、超えた分は元のスコア順のまま後方に維持する.
+             */
+            this.rerankCandidateLength = DEFAULT_RERANK_CANDIDATE_LENGTH;
+
+            /**
              * rag問い合わせ時の推論モードのOn/Offを設定します.
              *  - true: 推論モードをONで実行します.
              *  - false: 推論モードをOFFで実行します.
@@ -695,6 +716,16 @@
             } else {
                 this.ragReasoning = null;
             }
+            this.ragRerank = Conv.getBoolean(
+                _mapToGetValue(json, "ragRerank", this.ragRerank),
+            );
+            this.rerankCandidateLength = Conv.getInt(
+                _mapToGetValue(
+                    json,
+                    "rerankCandidateLength",
+                    this.rerankCandidateLength,
+                ),
+            );
             // ─── その他 ─────────────────────────────────
             this.lockTimeout = Conv.getInt(
                 _mapToGetValue(json, "lockTimeout", this.lockTimeout),

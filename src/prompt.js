@@ -96,6 +96,37 @@
 それでは指示された \`[AI生成ルール]\` を厳守で日本語で回答を開始してください。
 `.trim();
 
+    // リランキングシステムプロンプト (日本語版).
+    const RERANK_REQUEST_SYSTEM_PROMPT_JA = `
+あなたは \`検索結果の関連度判定の専門家\` です. ユーザーから提示される「質問」と「候補文書一覧」を見て、質問への回答に役立つ可能性が高い順に候補文書を並び替えます.
+
+[AI生成ルール]
+- 候補文書一覧の中から、質問に関連する可能性が高い順に \`name\` を並べた配列を json format 出力対応（JSON.parseが行える形式）で出力してください.
+※ 注意: 必ず *** \`\`\`json *** で json出力部分を囲う事を前提に「回答形式」の出力を行うこと.
+- \`order\`: 候補文書一覧に記載されている \`name\` を、関連度が高い順に並べた文字列の配列としてください.
+- 候補文書一覧に記載されている \`name\` は1つも省略せず、全件を \`order\` に含めてください（新しい名前を作成しないこと）.
+
+[回答形式]
+\`\`\`json
+{
+  "order": ["文書名2", "文書名1", "文書名3"]
+}
+\`\`\`
+※ 上記は形式の見本です。実際の並び順は質問と候補文書に応じて決定してください。
+`.trim();
+
+    // リランキングユーザプロンプト (日本語版).
+    const RERANK_REQUEST_USER_PROMPT_JA = `
+[候補文書一覧]
+{{candidates}}
+
+[質問]
+{{message}}
+
+---
+それでは指示された \`[AI生成ルール]\` を厳守して回答を開始してください。
+`.trim();
+
     // ═══════════════════════════════════════════════════════════════
     // 英語版 (実際に推論に使用する).
     // ═══════════════════════════════════════════════════════════════
@@ -172,6 +203,36 @@ Always write the "message" content in Japanese.
 
 ---
 Now, strictly follow the specified "[AI Generation Rules]" and begin your answer in Japanese.
+`.trim();
+
+    // リランキングシステムプロンプト (英語版・実使用).
+    const RERANK_REQUEST_SYSTEM_PROMPT_EN = `
+You are an expert at judging search relevance. Given a "Question" and a "Candidate Documents" list, reorder the candidate documents from most to least likely to be useful for answering the question.
+
+[AI Generation Rules]
+- Output strictly as valid JSON (must be parsable by JSON.parse), wrapped in \`\`\`json fences exactly as shown in [Answer Format] below.
+- "order": an Array of the "name" values from the candidate documents list, sorted from most relevant to least relevant.
+- Include every "name" from the candidate documents list exactly once in "order" (do not omit any, do not invent new ones).
+
+[Answer Format]
+\`\`\`json
+{
+  "order": ["document name 2", "document name 1", "document name 3"]
+}
+\`\`\`
+Note: the example above only illustrates the required JSON format. Determine the actual order based on the Question and Candidate Documents.
+`.trim();
+
+    // リランキングユーザプロンプト (英語版・実使用).
+    const RERANK_REQUEST_USER_PROMPT_EN = `
+[Candidate Documents]
+{{candidates}}
+
+[Question]
+{{message}}
+
+---
+Now, strictly follow the specified "[AI Generation Rules]" and begin your output.
 `.trim();
 
     // タグ生成ルール文言 (英語版・実使用).
@@ -252,6 +313,29 @@ Now, strictly follow the specified "[AI Generation Rules]" and begin your answer
         };
     };
 
+    /**
+     * リランキング問い合わせプロンプト (system/user) を生成して返す.
+     *
+     * user プロンプトの {{candidates}} {{message}} を置き換える.
+     * 実際に使用するプロンプト本文は英語版 (高速化のため).
+     *
+     * @param  {string} candidates  候補文書一覧を整形した文字列 (name + summary等)
+     * @param  {string} message     ユーザーの質問文
+     * @return {{system: string, user: string}}  llama.cpp に渡す system/user プロンプト
+     */
+    const getRerankRequest = function (candidates, message) {
+        return {
+            system: RERANK_REQUEST_SYSTEM_PROMPT_EN,
+            user: Conv.keyValueTemplate(
+                RERANK_REQUEST_USER_PROMPT_EN,
+                "candidates",
+                candidates,
+                "message",
+                message,
+            ),
+        };
+    };
+
     // ═══════════════════════════════════════════════════════════════
     // exports
     // ═══════════════════════════════════════════════════════════════
@@ -261,12 +345,17 @@ Now, strictly follow the specified "[AI Generation Rules]" and begin your answer
         SUMMARY_REQUEST_USER_PROMPT_JA,
         RAG_REQUEST_SYSTEM_PROMPT_JA,
         RAG_REQUEST_USER_PROMPT_JA,
+        RERANK_REQUEST_SYSTEM_PROMPT_JA,
+        RERANK_REQUEST_USER_PROMPT_JA,
         // 英語版 (実使用).
         SUMMARY_REQUEST_SYSTEM_PROMPT_EN,
         SUMMARY_REQUEST_USER_PROMPT_EN,
         RAG_REQUEST_SYSTEM_PROMPT_EN,
         RAG_REQUEST_USER_PROMPT_EN,
+        RERANK_REQUEST_SYSTEM_PROMPT_EN,
+        RERANK_REQUEST_USER_PROMPT_EN,
         getSummaryRequest,
         getRagRequest,
+        getRerankRequest,
     };
 })();
