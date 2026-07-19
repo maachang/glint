@@ -284,12 +284,14 @@
          *   score = (a・b) / (sqrt(na * nb) + 1e-10)
          *   分母に 1e-10 を加算することでゼロ除算を防いでいる.
          *
-         * @param  {VectorChunk[]} out       結果を格納する配列. out.length が最大取得件数になる.
-         * @param  {Float32Array}  queryEmb  クエリのベクトル (検索したいテキストの埋め込み).
+         * @param  {VectorChunk[]} out         結果を格納する配列. out.length が最大取得件数になる.
+         * @param  {Float32Array}  queryEmb    クエリのベクトル (検索したいテキストの埋め込み).
+         * @param  {VectorChunk[]} [candidates] 検索対象チャンクを絞り込みたい場合に設定する
+         *                                     (tags/categoryでの事前フィルタ用). 省略時は全チャンク対象.
          * @return {number}        out[] に実際に書き込んだ件数.
          */
-        searchEmbedding(out, queryEmb) {
-            const docs = this._chunks;
+        searchEmbedding(out, queryEmb, candidates) {
+            const docs = candidates || this._chunks;
             const len = docs.length;
             if (len === 0) {
                 return 0;
@@ -1477,52 +1479,65 @@
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * [private]検索結果 (VectorChunk[]) を tag/category でフィルタリングする.
+     * [private]検索対象チャンク (VectorChunk[]) を tag/category で絞り込む (事前フィルタ).
      *
      * 各チャンクの docName から保存済みサマリーテキストを再パースして tag/category
      * を取得し、tags/categories のいずれかに1つでも一致すれば残す (OR条件).
      * tags/categories どちらも未指定の場合は絞り込みを行わずそのまま返す.
      *
-     * ※ ベクトル検索で既に上位 length 件に絞られた候補に対する事後フィルタである点に注意.
-     *   (フィルタ対象のタグ/カテゴリを持つ文書が、そもそも上位候補に入っていなければ拾えない)
+     * ベクトル検索 (スコアリング) の前に候補チャンクそのものを絞り込むため、
+     * 「フィルタ対象のタグ/カテゴリを持つ文書が、ベクトル検索の上位候補に
+     * 入っていなければ拾えない」という事後フィルタの制約が発生しない.
+     * 同一 docName のチャンクはタグ/カテゴリのパース結果をキャッシュして再パースを避ける.
      *
-     * @param  {VectorChunk[]} list        フィルタ対象の検索結果.
-     * @param  {string[]}      [tags]       絞り込み対象の tag 一覧.
-     * @param  {string[]}      [categories] 絞り込み対象の category 一覧.
+     * @param  {VectorChunk[]}  chunks       絞り込み対象のチャンク一覧 (VectorGroup#getChunked()).
+     * @param  {VectorSummary}  summary      対応する VectorSummary (tag/category の実体はここにある).
+     * @param  {string[]}       [tags]       絞り込み対象の tag 一覧.
+     * @param  {string[]}       [categories] 絞り込み対象の category 一覧.
      * @return {VectorChunk[]}
      */
-    const _filterByTagCategory = function (list, tags, categories) {
+    const _filterChunksByTagCategory = function (
+        chunks,
+        summary,
+        tags,
+        categories,
+    ) {
         const tagSet = Array.isArray(tags) && tags.length > 0 ? new Set(tags) : null;
         const categorySet =
             Array.isArray(categories) && categories.length > 0
                 ? new Set(categories)
                 : null;
         if (tagSet == null && categorySet == null) {
-            return list;
+            return chunks;
         }
-        return list.filter(function (chunk) {
-            const parsed = _resultSummayToJson(
-                chunk.summary.getText(chunk.docName),
-            );
-            if (parsed == null) {
-                return false;
-            }
-            if (tagSet != null && tagSet.has(parsed.tag)) {
-                return true;
-            }
-            if (categorySet != null) {
-                const cats = Array.isArray(parsed.category)
-                    ? parsed.category
-                    : parsed.category
-                      ? [parsed.category]
-                      : [];
-                for (let i = 0; i < cats.length; i++) {
-                    if (categorySet.has(cats[i])) {
-                        return true;
+        const matchCache = new Map();
+        return chunks.filter(function (chunk) {
+            let matched = matchCache.get(chunk.docName);
+            if (matched === undefined) {
+                matched = false;
+                const parsed = _resultSummayToJson(
+                    summary.getText(chunk.docName),
+                );
+                if (parsed != null) {
+                    if (tagSet != null && tagSet.has(parsed.tag)) {
+                        matched = true;
+                    } else if (categorySet != null) {
+                        const cats = Array.isArray(parsed.category)
+                            ? parsed.category
+                            : parsed.category
+                              ? [parsed.category]
+                              : [];
+                        for (let i = 0; i < cats.length; i++) {
+                            if (categorySet.has(cats[i])) {
+                                matched = true;
+                                break;
+                            }
+                        }
                     }
                 }
+                matchCache.set(chunk.docName, matched);
             }
-            return false;
+            return matched;
         });
     };
 
@@ -1530,12 +1545,14 @@
      * 自然言語クエリを受け取り、VectorGroup からスコア降順の VectorChunk[] を返す.
      *
      * 【処理の流れ】
-     *   1. クエリ文字列を _stringToChunks() で分割する.
+     *   1. tags/categories が指定されている場合、ベクトル検索の対象チャンクそのものを
+     *      事前に絞り込む (事前フィルタ. スコアリング前に絞るため、対象文書が上位候補に
+     *      入らず取り逃す、という事後フィルタの問題が発生しない).
+     *   2. クエリ文字列を _stringToChunks() で分割する.
      *      (長い質問文もチャンク単位で検索することで検索漏れを防ぐ)
-     *   2. 各クエリチャンクを LlamaCpp.getEmbedding() でベクトル化する.
-     *   3. VectorGroup.searchEmbedding() でスコア上位 length 件を取得してリストに追加する.
-     *   4. 全クエリチャンクの結果をまとめてスコア降順にソートする.
-     *   5. tags/categories が指定されている場合、それらに一致する文書のみに絞り込む.
+     *   3. 各クエリチャンクを LlamaCpp.getEmbedding() でベクトル化する.
+     *   4. VectorGroup.searchEmbedding() で (絞り込み済み候補から) スコア上位 length 件を取得してリストに追加する.
+     *   5. 全クエリチャンクの結果をまとめてスコア降順にソートする.
      *
      * 【使い方】
      *   const vg = await loadVectorGroup('docs', '/data');
@@ -1574,6 +1591,15 @@
             embBaseUrl = embObj.baseUrl;
         }
         try {
+            // tags/categories が指定されている場合、ベクトル検索の候補チャンク自体を
+            // 事前に絞り込む (未指定の場合は vg.getChunked() そのまま = 従来通り).
+            const candidates = _filterChunksByTagCategory(
+                vg.getChunked(),
+                vg.getSummary(),
+                options.tags,
+                options.categories,
+            );
+
             // クエリを文字数制限でチャンク分割する
             const chunks = _stringToChunks(message, chunkSize, overlap);
             const list = [];
@@ -1589,8 +1615,8 @@
                     embObj && embObj.model,
                     embObj && embObj.apiKey,
                 );
-                // VectorGroup からベクトルに近い上位 length 件を取得
-                resLen = vg.searchEmbedding(ary, semb);
+                // VectorGroup からベクトルに近い上位 length 件を取得 (絞り込み済み候補が対象)
+                resLen = vg.searchEmbedding(ary, semb, candidates);
                 resLen = resLen > length ? length : resLen;
                 // 結果リストに追加
                 for (j = 0; j < resLen; j++) {
@@ -1603,8 +1629,7 @@
             list.sort(function (a, b) {
                 return b.score - a.score;
             });
-            // tags/categories が指定されている場合はそれらに一致する文書のみに絞り込む.
-            return _filterByTagCategory(list, options.tags, options.categories);
+            return list;
         } finally {
             // 利用終了.
             if (embObj != null) {

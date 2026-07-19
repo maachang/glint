@@ -820,7 +820,7 @@
 
     // POST /api/groups/:group/search
     // body: { message, tags?, categories?, options? }
-    // tags/categories はベクトル検索結果に対する事後フィルタ (いずれか一致でOR).
+    // tags/categories はベクトル検索の候補チャンクに対する事前フィルタ (いずれか一致でOR).
     const _handleSearch = async function (req, res, groupName) {
         const body = await _readJsonBody(req);
         const message = body.message;
