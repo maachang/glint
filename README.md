@@ -136,8 +136,9 @@ const searchResult = await vg.searchEmbedding(vgObj, "質問内容", {
 });
 
 // 3. 検索結果を元にRAG推論を実行し、回答を取得.
-const answer = await vg.searchInference(searchResult, "質問内容");
-console.log(answer);
+// { message: 回答本文(string, Markdown可), list: 引用した参考文書一覧(Array<{name,url}>) }
+const result = await vg.searchInference(searchResult, "質問内容");
+console.log(result.message);
 
 // グループ内のタグ/カテゴリ集計 (件数・比率) を取得.
 const stats = await vg.getGroupStats(GROUP_NAME);

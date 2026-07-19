@@ -1603,54 +1603,64 @@
     };
 
     /**
-     * [private]条件が一致する場合に参考文書を付与した形の返却をする.
-     * @param {*} resTxt 元の検索結果文書.
-     * @param {*} lastReferenceSmb 参考文書一覧列挙のタイトルシンボル名を設定します.
+     * [private]RAG回答のJSON文字列 ({message, list}) をパースする.
+     * サマリー生成時の _resultSummayToJson と同様、```json ~~~json で
+     * 囲われた部分を取り出してパースする.
+     * @param {string} resTxt LLMからの回答文字列.
+     * @returns {{message: string, list: Array<{name:string,url:string}>}|null}
+     *          パースに失敗した場合は null が返却されます.
+     */
+    const _ragResultToJson = function (resTxt) {
+        resTxt = resTxt.trim();
+
+        let ep;
+        if (resTxt.startsWith("~~~json")) {
+            ep = resTxt.indexOf("~~~", 7);
+            if (ep == -1) {
+                return null;
+            }
+        } else if (resTxt.startsWith("```json")) {
+            ep = resTxt.indexOf("```", 7);
+            if (ep == -1) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+        try {
+            const jsonTxt = resTxt.substring(7, ep).trim();
+            const jsonValue = Conv.parseJson(jsonTxt);
+            if (typeof jsonValue["message"] !== "string") {
+                return null;
+            }
+            return {
+                message: jsonValue["message"],
+                list: Array.isArray(jsonValue["list"]) ? jsonValue["list"] : [],
+            };
+        } catch (e) {
+            console.warn("#RAG回答のjsonパースに失敗: " + resTxt);
+        }
+        return null;
+    };
+
+    /**
+     * [private]LLMのJSONパースに失敗した場合に、検索候補一覧から
+     * 参考文書一覧(list)を代替生成する.
      * @param {*} targetList
      * @param {*} maxLen
-     * @returns {string} 検索結果内容が返却されます.
+     * @returns {Array<{name:string,url:string}>}
      */
-    const _setLastReferenceSymbol = function (
-        resTxt,
-        lastReferenceSmb,
-        targetList,
-        maxLen,
-    ) {
-        // lastReferenceSmb が文字列でない、０文字列の場合.
-        if (typeof lastReferenceSmb != "string" || lastReferenceSmb <= 0) {
-            // 設定対象が存在しないので付与しない.
-            return resTxt;
-        }
-        // 最後から「lastReferenceSmb」の文字列を検索/
-        const p = resTxt.lastIndexOf(lastReferenceSmb);
-        // 見つかった場合、そして見つかった内容が 全体文字数の半分より後ろの場合.
-        //if (p != -1 && p > resTxt.length >> 1) {
-        // 見つかった場合.
-        if (p != -1) {
-            // 存在すると満たして、付与しない.
-            return resTxt;
-        }
-        resTxt = resTxt + "\n\n---\n\n【" + lastReferenceSmb + "】\n";
-        // 参考文書をセット.
-        let vc, txt;
-        txt = "";
+    const _fallbackReferenceList = function (targetList, maxLen) {
+        const list = [];
+        let vc;
         for (let i = 0; i < maxLen; i++) {
             vc = targetList[i][0];
-            //  [{文書名}]({文書URL}) で記載.
-            txt +=
-                "" +
-                (i + 1) +
-                ". [" +
-                vc.docName +
-                "](" +
-                vc.summary.getUrl(vc.docName) +
-                ")\n";
+            list[list.length] = {
+                name: vc.docName,
+                url: vc.summary.getUrl(vc.docName),
+            };
         }
-        txt +=
-            " ※ 上の【" +
-            lastReferenceSmb +
-            "】内容は検索候補一覧で、検索結果に一致してない内容も含まれています.\n";
-        return resTxt + txt;
+        return list;
     };
 
     /**
@@ -1664,11 +1674,8 @@
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
-     *   - {string} lastReferenceSmb 対象内容の文字が設定された場合、デフォルト値だと
-     *                                ・参照文書一覧
-     *                               が「文書最後に参考文書一覧」として列挙されるがこれが行われて
-     *                               いない場合に、検索候補の結果を代替えで表示する場合にセットする.
-     * @return {Promise<string>} 回答内容が返却されます.
+     * @return {Promise<{message: string, list: Array<{name:string,url:string}>}>}
+     *         回答本文(message)と引用した参考文書一覧(list)が返却されます.
      */
     const searchInference = async function (resSearchEmb, message, options) {
         // options が設定せれていない場合.
@@ -1684,8 +1691,6 @@
             options.ragReasoning == true || options.ragReasoning == false
                 ? options.ragReasoning
                 : conf.ragReasoning;
-        let lastReferenceSmb =
-            options.lastReferenceSmb || conf.lastReferenceSmb;
 
         // ifBaseUrl が存在しない場合、config定義されている内容から割り当てる.
         let ifObj = null;
@@ -1784,14 +1789,17 @@
             ret = util.changeString(ret, "<answer>", "");
             ret = util.changeString(ret, "</answer>", "");
 
-            // lastReferenceSmb が文字列で存在する場合、
-            // 参考文書がRAG回答に存在しない場合に付与する.
-            return _setLastReferenceSymbol(
-                ret,
-                lastReferenceSmb,
-                targetList,
-                maxLen,
-            );
+            // LLMのJSON回答 ({message, list}) をパースする.
+            const parsed = _ragResultToJson(ret);
+            if (parsed != null) {
+                return parsed;
+            }
+            // JSONパースに失敗した場合は、回答本文をそのまま採用し、
+            // 参考文書一覧(list)は検索候補から代替生成する.
+            return {
+                message: ret,
+                list: _fallbackReferenceList(targetList, maxLen),
+            };
         } finally {
             // 利用終了.
             if (ifObj != null) {
@@ -1815,11 +1823,8 @@
      *   - {string} ragRequestChunkFormat RAGプロンプト内の1チャンク分フォーマットを設定します.
      *   - {string} ifBaseUrl 推論モデルサーバーの URL (例: 'http://localhost:8081')を設定します.
      *   - {boolean} ragReasoning 推論モードのON OFF を設定します.
-     *   - {string} lastReferenceSmb 対象内容の文字が設定された場合、デフォルト値だと
-     *                                ・参照文書一覧
-     *                               が「文書最後に参考文書一覧」として列挙されるがこれが行われて
-     *                               いない場合に、検索候補の結果を代替えで表示する場合にセットする.
-     * @return {Promise<string>} 回答内容が返却されます.
+     * @return {Promise<{message: string, list: Array<{name:string,url:string}>}>}
+     *         回答本文(message)と引用した参考文書一覧(list)が返却されます.
      */
     const search = async function (vg, message, options) {
         // 組み込み検索.

@@ -95,8 +95,6 @@ npm install
     // RAGプロンプトに含めるチャンク数.
     "ragRequestChunkLength": 7,
     "ragRequestChunkFormat": "- {{no}} 参考文書名: {{name}}, ...",
-    // 回答に参照文書一覧が含まれない場合に付与する際の見出し文字列.
-    "lastReferenceSmb": "参照文書一覧",
     "ragReasoning": null,
 
     // ─── プロセス間ロック ────────────────────────────────
@@ -140,7 +138,6 @@ npm install
 | `vectorSearchLength` | `30` | ベクトル検索の最大取得件数 |
 | `ragRequestChunkLength` | `7` | RAGプロンプトに含めるチャンク数 |
 | `ragRequestChunkFormat` | (既定テンプレート) | 1チャンク分のプロンプト整形フォーマット |
-| `lastReferenceSmb` | `"参照文書一覧"` | 参照文書一覧の見出し文字列 |
 | `ragReasoning` | `null` | RAG推論時の推論モード on/off/未指定 |
 | `lockTimeout` | `-1` | ロック待ちタイムアウト (-1=無限待ち) |
 | `logDir` | `"./log"` | ローカルログの出力先ディレクトリ |

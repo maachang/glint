@@ -688,7 +688,6 @@
             vectorSearchLength: conf.vectorSearchLength,
             ragRequestChunkLength: conf.ragRequestChunkLength,
             ragReasoning: conf.ragReasoning,
-            lastReferenceSmb: conf.lastReferenceSmb,
             lockTimeout: conf.lockTimeout,
             logDir: conf.logDir,
             logFile: conf.logFile,
@@ -813,8 +812,8 @@
             body.options,
         );
         const vgObj = await vg.loadVectorGroup(groupName);
-        const answer = await vg.search(vgObj, message, options);
-        _sendJson(res, 200, { answer });
+        const result = await vg.search(vgObj, message, options);
+        _sendJson(res, 200, result);
     };
 
     // GET /health

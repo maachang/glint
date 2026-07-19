@@ -211,6 +211,22 @@
         el.innerHTML = sanitizeHtml(marked.parse(markdownText));
     };
 
+    // RAG検索結果の { message, list } から、表示用のMarkdown文字列を組み立てる.
+    // list (参考文書 {name, url} の配列) は文書名/URLをこちら側で正確に把握しているため、
+    // ここで組み立てることで、LLMが直接Markdownリンクを書く際に起こり得る記法崩れ
+    // (文書名/URLに括弧等が含まれる場合など) を避けられる.
+    const buildSearchResultMarkdown = function (result) {
+        let md = result.message || "";
+        const list = Array.isArray(result.list) ? result.list : [];
+        if (list.length > 0) {
+            md += "\n\n---\n\n【参照文書一覧】\n";
+            list.forEach((d, i) => {
+                md += (i + 1) + ". [" + d.name + "](" + d.url + ")\n";
+            });
+        }
+        return md;
+    };
+
     // ジョブ完了をポーリングする.
     const waitForJob = async function (jobId) {
         for (let i = 0; i < 300; i++) {
@@ -289,7 +305,7 @@
                 "/groups/" + encodeURIComponent(groupName) + "/search",
                 body,
             );
-            renderMarkdown(searchResult, res.answer);
+            renderMarkdown(searchResult, buildSearchResultMarkdown(res));
         } catch (e) {
             searchResult.textContent = "エラー: " + e.message;
         }
