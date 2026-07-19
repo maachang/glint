@@ -95,7 +95,34 @@
             "CREATE TABLE IF NOT EXISTS backfill_status (" +
                 "groupName TEXT PRIMARY KEY, " +
                 "documentsDone INTEGER NOT NULL DEFAULT 0, " +
-                "chunkFtsDone INTEGER NOT NULL DEFAULT 0" +
+                "chunkFtsDone INTEGER NOT NULL DEFAULT 0, " +
+                "vgsMigrated INTEGER NOT NULL DEFAULT 0, " +
+                "vssMigrated INTEGER NOT NULL DEFAULT 0" +
+                ");",
+        );
+        // チャンク本体 (テキスト+embedding). 従来の.vgsファイルの実データ.
+        _db.exec(
+            "CREATE TABLE IF NOT EXISTS chunks (" +
+                "groupName TEXT NOT NULL, " +
+                "docName TEXT NOT NULL, " +
+                "indexNo INTEGER NOT NULL, " +
+                "allLength INTEGER NOT NULL, " +
+                "text TEXT NOT NULL, " +
+                "embedding BLOB NOT NULL, " +
+                "PRIMARY KEY (groupName, docName, indexNo)" +
+                ");",
+        );
+        _db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_group ON chunks(groupName);");
+        // 文書サマリー本体 (要約テキスト・URL・登録時刻). 従来の.vssファイルの実データ
+        // (allowedTagsは別途group_settingsテーブルで管理する).
+        _db.exec(
+            "CREATE TABLE IF NOT EXISTS summaries (" +
+                "groupName TEXT NOT NULL, " +
+                "docName TEXT NOT NULL, " +
+                "text TEXT NOT NULL, " +
+                "url TEXT NOT NULL, " +
+                "time INTEGER NOT NULL, " +
+                "PRIMARY KEY (groupName, docName)" +
                 ");",
         );
         _db.exec(
@@ -335,8 +362,9 @@
     /** ディレクトリスキャンで得たグループ一覧でキャッシュを構築する (初回のみ). */
     const setCachedGroups = function (groupNames, dirPath) {
         const db = _getDb(dirPath);
-        db.exec("DELETE FROM groups");
-        const insert = db.prepare("INSERT INTO groups (groupName) VALUES (?)");
+        // 既にSQLのみで作成済みのグループ(addGroup済み)を消してしまわないよう、
+        // DELETEはせずマージする (無ければ追加するだけ).
+        const insert = db.prepare("INSERT OR IGNORE INTO groups (groupName) VALUES (?)");
         groupNames.forEach(function (g) {
             insert.run(g);
         });
@@ -350,6 +378,17 @@
     const addGroup = function (groupName, dirPath) {
         const db = _getDb(dirPath);
         db.prepare("INSERT OR IGNORE INTO groups (groupName) VALUES (?)").run(groupName);
+    };
+
+    /**
+     * 指定グループがキャッシュ(groupsテーブル)に登録されているかを直接確認する.
+     * getCachedGroups()と異なり、バックフィル未実施でも(その状態に関わらず)
+     * このグループ単体の存在確認ができる.
+     */
+    const groupExists = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const row = db.prepare("SELECT 1 FROM groups WHERE groupName = ?").get(groupName);
+        return !!row;
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -507,6 +546,191 @@
         db.prepare("DELETE FROM backfill_status WHERE groupName = ?").run(groupName);
         db.prepare("DELETE FROM group_settings WHERE groupName = ?").run(groupName);
         db.prepare("DELETE FROM groups WHERE groupName = ?").run(groupName);
+        db.prepare("DELETE FROM chunks WHERE groupName = ?").run(groupName);
+        db.prepare("DELETE FROM summaries WHERE groupName = ?").run(groupName);
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // chunks (チャンク本体. 従来の.vgsファイルの実データ)
+    // ═══════════════════════════════════════════════════════════════
+
+    /** Float32ArrayをBLOB保存用のBufferに変換する内部ヘルパー. */
+    const _embeddingToBlob = function (embedding) {
+        return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+    };
+
+    /** BLOB(Buffer/Uint8Array)をFloat32Arrayに復元する内部ヘルパー. */
+    const _blobToEmbedding = function (blob) {
+        const buf = Buffer.from(blob);
+        // .slice()で元バッファから切り離した独立コピーを返す (安全のため).
+        return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4).slice();
+    };
+
+    /** .vgsが移行済みかどうかを返す. */
+    const isVgsMigrated = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const row = db.prepare("SELECT vgsMigrated FROM backfill_status WHERE groupName = ?").get(groupName);
+        return !!(row && row.vgsMigrated);
+    };
+
+    /** .vgsを移行済みとして記録する. */
+    const markVgsMigrated = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare(
+            "INSERT INTO backfill_status (groupName, vgsMigrated) VALUES (?, 1) " +
+                "ON CONFLICT(groupName) DO UPDATE SET vgsMigrated = 1",
+        ).run(groupName);
+    };
+
+    /**
+     * レガシー.vgsから読み込んだチャンク配列を一括インポートする (移行専用).
+     * @param {string} groupName
+     * @param {Array<{docName,indexNo,allLength,text,embedding}>} chunks
+     * @param {string} [dirPath]
+     */
+    const importChunks = function (groupName, chunks, dirPath) {
+        const db = _getDb(dirPath);
+        const insert = db.prepare(
+            "INSERT INTO chunks (groupName, docName, indexNo, allLength, text, embedding) " +
+                "VALUES (?, ?, ?, ?, ?, ?)",
+        );
+        for (let i = 0; i < chunks.length; i++) {
+            const c = chunks[i];
+            insert.run(groupName, c.docName, c.indexNo, c.allLength, c.text, _embeddingToBlob(c.embedding));
+        }
+    };
+
+    /**
+     * グループの全チャンクを返す (検索・バックアップ用).
+     * @param  {string} groupName
+     * @param  {string} [dirPath]
+     * @return {Array<{docName,indexNo,allLength,text,embedding:Float32Array}>}
+     */
+    const getChunks = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const rows = db
+            .prepare(
+                "SELECT docName, indexNo, allLength, text, embedding FROM chunks " +
+                    "WHERE groupName = ? ORDER BY docName, indexNo",
+            )
+            .all(groupName);
+        return rows.map(function (r) {
+            return {
+                docName: r.docName,
+                indexNo: r.indexNo,
+                allLength: r.allLength,
+                text: r.text,
+                embedding: _blobToEmbedding(r.embedding),
+            };
+        });
+    };
+
+    /**
+     * 指定文書のチャンクを置き換える (既存分は削除してから挿入).
+     * putTextFileToVectorGroup()から呼ぶ. 他の文書のデータには一切触れない.
+     * @param {string} groupName
+     * @param {string} docName
+     * @param {Array<{docName,indexNo,allLength,text,embedding}>} chunks
+     * @param {string} [dirPath]
+     */
+    const replaceDocumentChunks = function (groupName, docName, chunks, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare("DELETE FROM chunks WHERE groupName = ? AND docName = ?").run(groupName, docName);
+        const insert = db.prepare(
+            "INSERT INTO chunks (groupName, docName, indexNo, allLength, text, embedding) " +
+                "VALUES (?, ?, ?, ?, ?, ?)",
+        );
+        for (let i = 0; i < chunks.length; i++) {
+            const c = chunks[i];
+            insert.run(groupName, docName, c.indexNo, c.allLength, c.text, _embeddingToBlob(c.embedding));
+        }
+    };
+
+    /** 指定文書のチャンクを削除する. removeTextFileFromVectorGroup()から呼ぶ. */
+    const deleteDocumentChunks = function (groupName, docName, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare("DELETE FROM chunks WHERE groupName = ? AND docName = ?").run(groupName, docName);
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // summaries (サマリー本体. 従来の.vssファイルの実データ)
+    // ═══════════════════════════════════════════════════════════════
+
+    /** .vssが移行済みかどうかを返す. */
+    const isVssMigrated = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const row = db.prepare("SELECT vssMigrated FROM backfill_status WHERE groupName = ?").get(groupName);
+        return !!(row && row.vssMigrated);
+    };
+
+    /** .vssを移行済みとして記録する. */
+    const markVssMigrated = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare(
+            "INSERT INTO backfill_status (groupName, vssMigrated) VALUES (?, 1) " +
+                "ON CONFLICT(groupName) DO UPDATE SET vssMigrated = 1",
+        ).run(groupName);
+    };
+
+    /**
+     * レガシー.vssから読み込んだサマリーエントリを一括インポートする (移行専用).
+     * @param {string} groupName
+     * @param {Array<{docName,text,url,time}>} entries
+     * @param {string} [dirPath]
+     */
+    const importSummaryEntries = function (groupName, entries, dirPath) {
+        const db = _getDb(dirPath);
+        const insert = db.prepare(
+            "INSERT INTO summaries (groupName, docName, text, url, time) VALUES (?, ?, ?, ?, ?)",
+        );
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            insert.run(groupName, e.docName, e.text, e.url, Number(e.time));
+        }
+    };
+
+    /**
+     * グループの全サマリーエントリを返す.
+     * @param  {string} groupName
+     * @param  {string} [dirPath]
+     * @return {Array<{docName,text,url,time}>}
+     */
+    const getSummaryEntries = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        return db
+            .prepare("SELECT docName, text, url, time FROM summaries WHERE groupName = ?")
+            .all(groupName);
+    };
+
+    /** グループの文書数 (サマリー登録件数) を返す. */
+    const getSummaryCount = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const row = db.prepare("SELECT COUNT(*) as c FROM summaries WHERE groupName = ?").get(groupName);
+        return row ? row.c : 0;
+    };
+
+    /**
+     * 指定文書のサマリーエントリをUPSERTする.
+     * @param {string} groupName
+     * @param {string} docName
+     * @param {string} text
+     * @param {string} url
+     * @param {number|bigint} time
+     * @param {string} [dirPath]
+     */
+    const putSummaryEntry = function (groupName, docName, text, url, time, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare(
+            "INSERT INTO summaries (groupName, docName, text, url, time) VALUES (?, ?, ?, ?, ?) " +
+                "ON CONFLICT(groupName, docName) DO UPDATE SET " +
+                "text = excluded.text, url = excluded.url, time = excluded.time",
+        ).run(groupName, docName, text, url, Number(time));
+    };
+
+    /** 指定文書のサマリーエントリを削除する. */
+    const deleteSummaryEntry = function (groupName, docName, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare("DELETE FROM summaries WHERE groupName = ? AND docName = ?").run(groupName, docName);
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -553,11 +777,25 @@
         getCachedGroups,
         setCachedGroups,
         addGroup,
+        groupExists,
         replaceDocumentChunkFts,
         deleteDocumentChunkFts,
         ensureChunkFtsBackfilled,
         getKeywordScoreMap,
         deleteGroup,
         logSearch,
+        isVgsMigrated,
+        markVgsMigrated,
+        importChunks,
+        getChunks,
+        replaceDocumentChunks,
+        deleteDocumentChunks,
+        isVssMigrated,
+        markVssMigrated,
+        importSummaryEntries,
+        getSummaryEntries,
+        getSummaryCount,
+        putSummaryEntry,
+        deleteSummaryEntry,
     };
 })();
