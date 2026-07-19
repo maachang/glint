@@ -1178,13 +1178,11 @@
             // これらを踏まえて、RAG検索に対して影響力強化を与える.
 
             // グループ単位の許可タグ一覧を取得 (新規グループ等、未存在の場合は
-            // 制限なし=自由生成のまま扱う).
+            // 制限なし=自由生成のまま扱う). metaStore(SQLite)への移行済みなら
+            // .vssを読み込まずに取得できる (未移行時のみ内部で一度だけ読み込む).
             let allowedTags = [];
             try {
-                allowedTags = _loadVectorSummary(
-                    groupName,
-                    dirPath,
-                ).getAllowedTags();
+                allowedTags = await getAllowedTags(groupName, dirPath);
             } catch (e) {
                 allowedTags = [];
             }
@@ -1417,6 +1415,7 @@
                         chunkList,
                         dirPath,
                     );
+                    metaStore.addGroup(groupName, dirPath);
                 } catch (e) {
                     console.warn("#metaStoreの更新に失敗: " + e.message);
                 }
@@ -2300,6 +2299,16 @@
      */
     const listGroups = function (dirPath) {
         dirPath = _mkdirsToVectorStore(dirPath);
+
+        // metaStore(SQLite)にキャッシュされていれば、ディレクトリスキャン
+        // (_getPathToFiles、全ファイルにfs.statSyncする) を避けられる.
+        const cached = metaStore.getCachedGroups(dirPath);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 未バックフィル (このモジュール導入前、または初回起動時) の場合のみ
+        // ディレクトリスキャンを行い、以降のためにキャッシュを構築する.
         const files = _getPathToFiles(dirPath);
         const ret = [];
         for (let i = 0; i < files.length; i++) {
@@ -2307,7 +2316,48 @@
             if (!name.endsWith(VECTOR_GROUP_FILE_EXTENSION)) continue;
             ret.push(name.slice(0, -FILE_EXTENSION_SIZE));
         }
+        metaStore.setCachedGroups(ret, dirPath);
         return ret;
+    };
+
+    /**
+     * グループ内の文書一覧 (文書名・URL・登録時刻・tag・category) を返す.
+     *
+     * tag/categoryは、各文書のサマリー保存テキストを1件ずつ再パースするのではなく、
+     * metaStore(SQLite)のdocumentsテーブルから一括取得する (文書数が多い場合の
+     * パース処理コストを削減するため).
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param  {string} groupName   グループ名
+     * @param  {string} [*]dirPath  ディレクトリパス
+     * @return {{count: number, documents: Array<{name:string,url:string,time:number,tag:string|null,category:string[]|null}>}}
+     */
+    const getGroupDocuments = async function (groupName, dirPath) {
+        const vgObj = await loadVectorGroup(groupName, dirPath);
+        const summary = vgObj.getSummary();
+
+        // このモジュール導入前から存在するグループの場合、metaStore(SQLite)側に
+        // データが無いため、.vssの内容から一括構築する (2回目以降は即戻る).
+        metaStore.ensureDocumentsBackfilled(
+            vgObj.groupName,
+            summary,
+            _resultSummayToJson,
+            vgObj.dirPath,
+        );
+
+        const metaMap = metaStore.getAllDocumentMeta(vgObj.groupName, vgObj.dirPath);
+        const names = summary.getDocuments();
+        const documents = names.map(function (name) {
+            const meta = metaMap.get(name);
+            return {
+                name,
+                url: summary.getUrl(name),
+                time: Number(summary.getTime(name)),
+                tag: meta ? meta.tag : null,
+                category: meta ? meta.category : null,
+            };
+        });
+        return { count: documents.length, documents };
     };
 
     /**
@@ -2400,6 +2450,7 @@
             }
             _saveGroup(groupName, [], dirPath);
             _saveSummary(groupName, new VectorSummary(), dirPath);
+            metaStore.addGroup(groupName, dirPath);
         } finally {
             sync.unlock(groupName, lockUk);
         }
@@ -2478,6 +2529,14 @@
             if (vssBuffer != null) {
                 fs.writeFileSync(dirPath + "/" + vsFileName, vssBuffer);
             }
+            // metaStore(SQLite)側は、復元された内容と食い違わないよう一旦削除し、
+            // 次回アクセス時の遅延バックフィルで作り直させる (上書き復元にも対応).
+            try {
+                metaStore.deleteGroup(groupName, dirPath);
+                metaStore.addGroup(groupName, dirPath);
+            } catch (e) {
+                console.warn("#metaStoreのリストア反映に失敗: " + e.message);
+            }
         } finally {
             sync.unlock(groupName, lockUk);
         }
@@ -2495,12 +2554,24 @@
     const getAllowedTags = async function (groupName, dirPath) {
         dirPath = _getVectorStoreDir(dirPath);
         const pg = _trimPathGroup(dirPath, groupName);
-        const lockUk = await sync.lock(pg.groupName);
+        groupName = pg.groupName;
+
+        // metaStore(SQLite)に既に移行済みなら、.vssを読み込まずに即返せる.
+        const cached = metaStore.getAllowedTagsIfExists(groupName, pg.path);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 未移行 (このモジュール導入前からのグループ等) の場合のみ、
+        // .vssから一度だけ読み込んでmetaStoreに移行する.
+        const lockUk = await sync.lock(groupName);
         try {
-            const summary = _loadVectorSummary(pg.groupName, pg.path);
-            return summary.getAllowedTags();
+            const summary = _loadVectorSummary(groupName, pg.path);
+            const legacyTags = summary.getAllowedTags();
+            metaStore.setAllowedTags(groupName, legacyTags, pg.path);
+            return legacyTags;
         } finally {
-            sync.unlock(pg.groupName, lockUk);
+            sync.unlock(groupName, lockUk);
         }
     };
 
@@ -2539,15 +2610,18 @@
         const pg = _trimPathGroup(dirPath, groupName);
         groupName = pg.groupName;
         const normalizedTags = _normalizeTags(tags);
-        const lockUk = await sync.lock(groupName);
-        try {
-            const summary = _loadVectorSummary(groupName, pg.path);
-            summary.setAllowedTags(normalizedTags);
-            _saveSummary(groupName, summary, pg.path);
-            return normalizedTags;
-        } finally {
-            sync.unlock(groupName, lockUk);
+
+        // グループの存在確認 (存在しないグループにタグだけ設定してしまうことを防ぐ).
+        // .vssの内容自体は読み込まず、ファイルの有無だけ確認する (効率化).
+        const { vgFileName, vsFileName } = _getGroupNameToFileName(groupName);
+        if (!_isFile(pg.path, vgFileName) || !_isFile(pg.path, vsFileName)) {
+            const err = new Error("VectorGroup file does not exist: " + groupName);
+            err.code = "ENOENT";
+            throw err;
         }
+
+        metaStore.setAllowedTags(groupName, normalizedTags, pg.path);
+        return normalizedTags;
     };
 
     // ========================================================
@@ -2566,6 +2640,7 @@
         search,
         updateVectorGroupFileNames,
         listGroups,
+        getGroupDocuments,
         getGroupStats,
         createGroup,
         // 保存済みサマリーテキストから {tag, category, summary} を再パースする.

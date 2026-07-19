@@ -109,6 +109,21 @@
                 "createdAt INTEGER NOT NULL" +
                 ");",
         );
+        _db.exec(
+            "CREATE TABLE IF NOT EXISTS group_settings (" +
+                "groupName TEXT PRIMARY KEY, " +
+                "allowedTags TEXT" +
+                ");",
+        );
+        _db.exec(
+            "CREATE TABLE IF NOT EXISTS groups (" + "groupName TEXT PRIMARY KEY" + ");",
+        );
+        _db.exec(
+            "CREATE TABLE IF NOT EXISTS groups_backfill (" +
+                "id INTEGER PRIMARY KEY CHECK (id = 1), " +
+                "done INTEGER NOT NULL DEFAULT 0" +
+                ");",
+        );
         return _db;
     };
 
@@ -226,6 +241,115 @@
                     "GROUP BY je.value ORDER BY count DESC",
             )
             .all(groupName);
+    };
+
+    /**
+     * グループ内の全文書のtag/categoryをまとめて取得する (文書一覧APIで
+     * 1文書ごとに再パースする代わりに使う).
+     * @param  {string} groupName
+     * @param  {string} [dirPath]
+     * @return {Map<string, {tag: string|null, category: string[]|null}>}  キー: docName.
+     */
+    const getAllDocumentMeta = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const rows = db
+            .prepare("SELECT docName, tag, category FROM documents WHERE groupName = ?")
+            .all(groupName);
+        const map = new Map();
+        rows.forEach(function (r) {
+            map.set(r.docName, {
+                tag: r.tag || null,
+                category: r.category ? JSON.parse(r.category) : null,
+            });
+        });
+        return map;
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // group_settings (許可タグ一覧)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * グループの許可タグ一覧を取得する.
+     * まだSQLite側に移行されていない場合 (このモジュール導入前からのグループ等) は
+     * null を返す (呼び出し元で.vssからの移行処理を行う).
+     * @param  {string} groupName
+     * @param  {string} [dirPath]
+     * @return {string[]|null}
+     */
+    const getAllowedTagsIfExists = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const row = db
+            .prepare("SELECT allowedTags FROM group_settings WHERE groupName = ?")
+            .get(groupName);
+        if (!row) {
+            return null;
+        }
+        try {
+            const parsed = JSON.parse(row.allowedTags);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    };
+
+    /**
+     * グループの許可タグ一覧を設定する (無ければ新規作成).
+     * @param {string} groupName
+     * @param {string[]} tags
+     * @param {string} [dirPath]
+     */
+    const setAllowedTags = function (groupName, tags, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare(
+            "INSERT INTO group_settings (groupName, allowedTags) VALUES (?, ?) " +
+                "ON CONFLICT(groupName) DO UPDATE SET allowedTags = excluded.allowedTags",
+        ).run(groupName, JSON.stringify(Array.isArray(tags) ? tags : []));
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // groups (グループ一覧キャッシュ. ディレクトリスキャンの代替)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * キャッシュされたグループ一覧を返す.
+     * まだバックフィルされていない場合は null を返す (呼び出し元でディレクトリ
+     * スキャンを行い、setCachedGroups() で構築してもらう).
+     * @param  {string} [dirPath]
+     * @return {string[]|null}
+     */
+    const getCachedGroups = function (dirPath) {
+        const db = _getDb(dirPath);
+        const row = db.prepare("SELECT done FROM groups_backfill WHERE id = 1").get();
+        if (!row || !row.done) {
+            return null;
+        }
+        return db
+            .prepare("SELECT groupName FROM groups ORDER BY groupName")
+            .all()
+            .map(function (r) {
+                return r.groupName;
+            });
+    };
+
+    /** ディレクトリスキャンで得たグループ一覧でキャッシュを構築する (初回のみ). */
+    const setCachedGroups = function (groupNames, dirPath) {
+        const db = _getDb(dirPath);
+        db.exec("DELETE FROM groups");
+        const insert = db.prepare("INSERT INTO groups (groupName) VALUES (?)");
+        groupNames.forEach(function (g) {
+            insert.run(g);
+        });
+        db.prepare(
+            "INSERT INTO groups_backfill (id, done) VALUES (1, 1) " +
+                "ON CONFLICT(id) DO UPDATE SET done = 1",
+        ).run();
+    };
+
+    /** グループ一覧キャッシュに1件追加する (既に存在する場合は何もしない). */
+    const addGroup = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        db.prepare("INSERT OR IGNORE INTO groups (groupName) VALUES (?)").run(groupName);
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -381,6 +505,8 @@
         db.prepare("DELETE FROM documents WHERE groupName = ?").run(groupName);
         db.prepare("DELETE FROM chunk_fts WHERE groupName = ?").run(groupName);
         db.prepare("DELETE FROM backfill_status WHERE groupName = ?").run(groupName);
+        db.prepare("DELETE FROM group_settings WHERE groupName = ?").run(groupName);
+        db.prepare("DELETE FROM groups WHERE groupName = ?").run(groupName);
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -421,6 +547,12 @@
         getDocumentTotals,
         getTagCounts,
         getCategoryCounts,
+        getAllDocumentMeta,
+        getAllowedTagsIfExists,
+        setAllowedTags,
+        getCachedGroups,
+        setCachedGroups,
+        addGroup,
         replaceDocumentChunkFts,
         deleteDocumentChunkFts,
         ensureChunkFtsBackfilled,

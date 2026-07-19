@@ -654,22 +654,8 @@
 
     // GET /groups/:group/documents
     const _handleListDocuments = async function (req, res, groupName) {
-        const vgObj = await vg.loadVectorGroup(groupName);
-        const summary = vgObj.getSummary();
-        const names = summary.getDocuments();
-        const documents = names.map((name) => {
-            // 保存済みサマリーテキストから tag/category を再抽出する.
-            // 旧形式など解析できない場合は null にする.
-            const parsed = vg.parseSummaryJson(summary.getText(name));
-            return {
-                name,
-                url: summary.getUrl(name),
-                time: Number(summary.getTime(name)),
-                tag: parsed ? parsed.tag ?? null : null,
-                category: parsed ? parsed.category ?? null : null,
-            };
-        });
-        _sendJson(res, 200, { count: documents.length, documents });
+        const result = await vg.getGroupDocuments(groupName);
+        _sendJson(res, 200, result);
     };
 
     // GET /api/groups/:group/stats
