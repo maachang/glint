@@ -14,6 +14,8 @@
  *   GET    /groups/:group/documents/:fileName/raw  元データの取得 (url自動発行時のみ有効)
  *   GET    /jobs/:jobId                        文書登録ジョブの状態確認
  *   POST   /groups/:group/search               RAG検索 (embedding検索 + 推論. 同期)
+ *   GET    /groups/:group/backup               グループのバックアップ (.vgs/.vss + 元データ)
+ *   POST   /groups/:group/restore              グループのレストア (バックアップから復元)
  *   GET    /health                             llama.cpp接続先の状態確認
  *
  * 【文書登録が非同期な理由】
@@ -31,6 +33,14 @@
  *   元データ (テキストまたはPDFバイナリ) を conf.srcDocumentPath 配下に保存し、
  *   GET /groups/:group/documents/:fileName/raw で読み出せるURLを自動生成して
  *   文書の参照URLとして使用する.
+ *
+ * 【バックアップ/レストアについて】
+ *   GET /groups/:group/backup は .vgs/.vss と元データ (srcDocumentPath配下) を
+ *   base64化してJSON1つにまとめて返す (tar/zip等の外部依存は使わない).
+ *   glint.json の設定スナップショットも参照用として含まれるが、apiKeyはマスクされ、
+ *   POST /groups/:group/restore で復元してもグローバル設定には反映されない.
+ *   restore先に既にグループが存在する場合、body.overwrite=true を指定しない限り
+ *   409 エラーになる (誤った上書きを防ぐため).
  *
  * 【llama.cppサーバが利用不可の場合】
  *   ConnectMan.acquire() が例外を throw するので、そのまま 503 として返す
@@ -134,6 +144,36 @@
         } catch (e) {
             // 元々存在しない場合は無視する.
         }
+    };
+
+    // グループの元データ一覧を読み込む (バックアップ用).
+    // .meta.json サイドカーファイル自体は対象から除外する.
+    const _listRawDocuments = function (groupName) {
+        const dir = _getSrcDocumentDir(groupName);
+        let names;
+        try {
+            names = fs.readdirSync(dir);
+        } catch (e) {
+            return [];
+        }
+        const ret = [];
+        for (let i = 0; i < names.length; i++) {
+            const name = names[i];
+            if (name.endsWith(RAW_META_EXTENSION)) continue;
+            let stat;
+            try {
+                stat = fs.statSync(dir + "/" + name);
+            } catch (e) {
+                continue;
+            }
+            if (!stat.isFile()) continue;
+            ret.push({
+                fileName: name,
+                content: fs.readFileSync(dir + "/" + name),
+                mimeType: _loadRawDocumentMimeType(groupName, name),
+            });
+        }
+        return ret;
     };
 
     // url未指定時に自動発行する raw 取得用URLを組み立てる.
@@ -408,6 +448,150 @@
         _sendJson(res, 200, stats);
     };
 
+    // ═══════════════════════════════════════════════════════════════
+    // バックアップ / レストア.
+    // ═══════════════════════════════════════════════════════════════
+
+    // 現在の glint.json 設定内容のスナップショットを返す (参照用).
+    // apiKey はバックアップ経由での漏洩を避けるため "***" にマスクする.
+    const _getConfigSnapshot = function () {
+        const conf = Config.getInstance();
+        const toEntrySnapshot = (info) => ({
+            baseUrl: info.baseUrl,
+            maxConnectCount: info.maxConnectCount,
+            model: info.model,
+            apiKey: info.apiKey ? "***" : null,
+            apiType: info.apiType,
+        });
+        return {
+            embeddingList: conf.embeddingList.map(toEntrySnapshot),
+            inferenceList: conf.inferenceList.map(toEntrySnapshot),
+            maxConnectCount: conf.maxConnectCount,
+            model: conf.model,
+            apiKey: conf.apiKey ? "***" : null,
+            apiType: conf.apiType,
+            healthCheckTiming: Number(conf.healthCheckTiming),
+            fetchTimeout: conf.fetchTimeout,
+            dirPath: conf.dirPath,
+            vectorStorePath: conf.vectorStorePath,
+            srcDocumentPath: conf.srcDocumentPath,
+            chunkSize: conf.chunkSize,
+            overlapSize: conf.overlapSize,
+            summaryTemperature: conf.summaryTemperature,
+            summaryReasoning: conf.summaryReasoning,
+            ragTemperature: conf.ragTemperature,
+            vectorSearchLength: conf.vectorSearchLength,
+            ragRequestChunkLength: conf.ragRequestChunkLength,
+            ragReasoning: conf.ragReasoning,
+            lastReferenceSmb: conf.lastReferenceSmb,
+            lockTimeout: conf.lockTimeout,
+            logDir: conf.logDir,
+            logFile: conf.logFile,
+            logLevel: conf.logLevel,
+            publicBaseUrl: conf.publicBaseUrl,
+        };
+    };
+
+    // GET /groups/:group/backup
+    const _handleBackupGroup = async function (req, res, groupName) {
+        const files = await vg.exportGroupFiles(groupName);
+        if (files.vgs == null && files.vss == null) {
+            _sendError(
+                res,
+                404,
+                "The specified group does not exist: " + groupName,
+            );
+            return;
+        }
+        const srcDocuments = _listRawDocuments(groupName);
+        const bundle = {
+            group: groupName,
+            createdAt: Date.now(),
+            // 参照用のスナップショット. restore時にこの内容が glint.json に
+            // 自動反映されることは無い (グローバル設定のため).
+            glintConfigSnapshot: _getConfigSnapshot(),
+            vectorStore: {
+                vgs: files.vgs ? files.vgs.toString("base64") : null,
+                vss: files.vss ? files.vss.toString("base64") : null,
+            },
+            srcDocuments: srcDocuments.map((d) => ({
+                fileName: d.fileName,
+                mimeType: d.mimeType,
+                content: d.content.toString("base64"),
+            })),
+        };
+        const txt = JSON.stringify(bundle);
+        res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Disposition":
+                'attachment; filename="' + groupName + '-backup.json"',
+            "Content-Length": Buffer.byteLength(txt),
+        });
+        res.end(txt);
+    };
+
+    // POST /groups/:group/restore
+    // body: { overwrite?, vectorStore: {vgs, vss}, srcDocuments?: [{fileName, mimeType, content}] }
+    // GET /groups/:group/backup が返すバンドルをそのまま渡せる形式.
+    // glintConfigSnapshot が含まれていても glint.json への反映は行わない (参照用のため無視する).
+    const _handleRestoreGroup = async function (req, res, groupName) {
+        const body = await _readJsonBody(req);
+        if (body.vectorStore == null) {
+            _sendError(
+                res,
+                400,
+                "vectorStore is required in the request body.",
+            );
+            return;
+        }
+        const vgsBuffer = body.vectorStore.vgs
+            ? Buffer.from(body.vectorStore.vgs, "base64")
+            : null;
+        const vssBuffer = body.vectorStore.vss
+            ? Buffer.from(body.vectorStore.vss, "base64")
+            : null;
+
+        try {
+            await vg.importGroupFiles(
+                groupName,
+                vgsBuffer,
+                vssBuffer,
+                null,
+                body.overwrite === true,
+            );
+        } catch (e) {
+            // 既に存在していて overwrite 未指定の場合など.
+            _sendError(res, 409, e.message);
+            return;
+        }
+
+        let documentsRestored = 0;
+        const srcDocuments = Array.isArray(body.srcDocuments)
+            ? body.srcDocuments
+            : [];
+        for (let i = 0; i < srcDocuments.length; i++) {
+            const doc = srcDocuments[i];
+            if (!doc.fileName || typeof doc.content !== "string") continue;
+            _saveRawDocument(
+                groupName,
+                doc.fileName,
+                Buffer.from(doc.content, "base64"),
+                doc.mimeType || null,
+            );
+            documentsRestored++;
+        }
+
+        console.info(
+            "[restore] group=" + groupName +
+                " documentsRestored=" + documentsRestored,
+        );
+        _sendJson(res, 200, {
+            restored: true,
+            group: groupName,
+            documentsRestored,
+        });
+    };
+
     // POST /groups/:group/search
     // body: { message, tags?, categories?, options? }
     // tags/categories はベクトル検索結果に対する事後フィルタ (いずれか一致でOR).
@@ -506,6 +690,26 @@
             seg[2] === "search"
         ) {
             await _handleSearch(req, res, seg[1]);
+            return;
+        }
+        // GET /groups/:group/backup
+        if (
+            req.method === "GET" &&
+            seg.length === 3 &&
+            seg[0] === "groups" &&
+            seg[2] === "backup"
+        ) {
+            await _handleBackupGroup(req, res, seg[1]);
+            return;
+        }
+        // POST /groups/:group/restore
+        if (
+            req.method === "POST" &&
+            seg.length === 3 &&
+            seg[0] === "groups" &&
+            seg[2] === "restore"
+        ) {
+            await _handleRestoreGroup(req, res, seg[1]);
             return;
         }
 

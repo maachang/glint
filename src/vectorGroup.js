@@ -1999,6 +1999,84 @@
         };
     };
 
+    /**
+     * バックアップ用に、グループの .vgs / .vss ファイルを生バイナリのまま読み込む.
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param  {string} groupName   グループ名
+     * @param  {string} [*]dirPath  ディレクトリパス
+     * @return {{vgs: Buffer|null, vss: Buffer|null}}  各ファイルが存在しない場合は null.
+     */
+    const exportGroupFiles = async function (groupName, dirPath) {
+        dirPath = _getVectorStoreDir(dirPath);
+        const pg = _trimPathGroup(dirPath, groupName);
+        groupName = pg.groupName;
+        const { vgFileName, vsFileName } = _getGroupNameToFileName(groupName);
+
+        const lockUk = await sync.lock(groupName);
+        try {
+            return {
+                vgs: _isFile(pg.path, vgFileName)
+                    ? fs.readFileSync(pg.path + "/" + vgFileName)
+                    : null,
+                vss: _isFile(pg.path, vsFileName)
+                    ? fs.readFileSync(pg.path + "/" + vsFileName)
+                    : null,
+            };
+        } finally {
+            sync.unlock(groupName, lockUk);
+        }
+    };
+
+    /**
+     * バックアップからの復元用に、グループの .vgs / .vss ファイルを生バイナリのまま書き込む.
+     *
+     * 既にグループが存在する場合、overwrite=true でなければ例外を throw する
+     * (誤って既存データを上書きしてしまうことを防ぐため).
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param  {string}  groupName    グループ名
+     * @param  {Buffer|null} vgsBuffer  .vgs の内容 (null の場合は書き込まない)
+     * @param  {Buffer|null} vssBuffer  .vss の内容 (null の場合は書き込まない)
+     * @param  {string}  [*]dirPath   ディレクトリパス
+     * @param  {boolean} [overwrite]  既存グループを上書きする場合は true.
+     * @throws {Error} 既にグループが存在し、overwrite が true でない場合.
+     */
+    const importGroupFiles = async function (
+        groupName,
+        vgsBuffer,
+        vssBuffer,
+        dirPath,
+        overwrite,
+    ) {
+        dirPath = _mkdirsToVectorStore(dirPath);
+        const pg = _trimPathGroup(dirPath, groupName);
+        dirPath = pg.path;
+        groupName = pg.groupName;
+        const { vgFileName, vsFileName } = _getGroupNameToFileName(groupName);
+
+        const lockUk = await sync.lock(groupName);
+        try {
+            const exists =
+                _isFile(dirPath, vgFileName) || _isFile(dirPath, vsFileName);
+            if (exists && overwrite !== true) {
+                throw new Error(
+                    "VectorGroup already exists: " +
+                        groupName +
+                        " (specify overwrite=true to replace it)",
+                );
+            }
+            if (vgsBuffer != null) {
+                fs.writeFileSync(dirPath + "/" + vgFileName, vgsBuffer);
+            }
+            if (vssBuffer != null) {
+                fs.writeFileSync(dirPath + "/" + vsFileName, vssBuffer);
+            }
+        } finally {
+            sync.unlock(groupName, lockUk);
+        }
+    };
+
     // ========================================================
     // モジュールエクスポート
     // ========================================================
@@ -2019,5 +2097,7 @@
         // 保存済みサマリーテキストから {tag, category, summary} を再パースする.
         // (putTextFileToVectorGroup() が保存する "~~~json {...} ~~~" 形式が対象)
         parseSummaryJson: _resultSummayToJson,
+        exportGroupFiles,
+        importGroupFiles,
     };
 })();
