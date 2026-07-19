@@ -28,8 +28,10 @@
  *   "/api" 配下に一致しないGETリクエストは、public/配下のファイルを
  *   探して配信する (静的ファイルはそのまま, ".mt.html" は jhtml.js でサーバサイド
  *   レンダリングしてから配信). "/" は "public/index.mt.html" にマッピングする.
- *   public/index.mt.html + public/js/app.js が、ブラウザから本APIを呼び出して
- *   利用できる簡易管理画面になっている.
+ *   機能別に複数ページに分かれており (RAG検索=index.mt.html, 文書登録=documents.mt.html,
+ *   グループ管理=groups.mt.html)、各ページ上部の共通メニュー(js/menu.js)で遷移する.
+ *   API呼び出しの共通処理はjs/common.jsに切り出し、各ページはjs/search.js・
+ *   js/documents.js・js/groups.jsがそれぞれのロジックを担当する.
  *
  * 【文書登録が非同期な理由】
  *   サマリー生成 + 埋め込みベクトル化で数秒〜数十秒かかるため、リクエストを

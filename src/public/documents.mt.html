@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glint - 文書登録</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header>
+  <h1>✨ Glint</h1>
+  <nav id="appMenu" class="menu"></nav>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>文書登録</h2>
+    <form id="putDocumentForm">
+      <div class="row">
+        <label>グループ名 <input type="text" id="putGroupName" required></label>
+      </div>
+      <div class="row">
+        <label>ファイル名 <input type="text" id="putFileName" placeholder="例: readme.txt" required></label>
+      </div>
+      <div class="row">
+        <label>参照URL (省略可) <input type="text" id="putUrl" placeholder="未指定なら自動発行"></label>
+      </div>
+      <div class="row">
+        <label>本文テキスト<br>
+          <textarea id="putText" rows="6"></textarea>
+        </label>
+      </div>
+      <div class="row">
+        <label>または PDFファイル (テキスト入力時は無視されます) <input type="file" id="putPdfFile" accept="application/pdf"></label>
+      </div>
+      <button type="submit">登録</button>
+      <span id="putStatus" class="hint"></span>
+    </form>
+  </section>
+</main>
+
+<footer>
+  <p class="hint">llama.cpp 接続状態は <a href="/api/health">/api/health</a> で確認できます。</p>
+</footer>
+
+<script src="/js/common.js"></script>
+<script src="/js/menu.js"></script>
+<script src="/js/documents.js"></script>
+</body>
+</html>

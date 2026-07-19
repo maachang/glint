@@ -29,6 +29,29 @@ header h1 {
   font-size: 1.5rem;
 }
 
+.menu {
+  margin-top: 0.8rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.menu-link {
+  display: inline-block;
+  padding: 0.3rem 0.8rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  text-decoration: none;
+  color: #1a1a1a;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.menu-link.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 main {
   max-width: 900px;
   margin: 0 auto;
@@ -193,6 +216,7 @@ pre {
   input, select, textarea { background: #10131a; color: #e6e6e6; border-color: #333944; }
   pre { background: #10131a; border-color: #333944; }
   .tag-chip { background: #24314f; color: #b9caff; }
+  .menu-link { background: #1d2128; border-color: #333944; color: #e6e6e6; }
   th, td { border-color: #333944; }
   .markdown-body { background: #10131a; border-color: #333944; }
   .markdown-body pre, .markdown-body code { background: #1d2128; }

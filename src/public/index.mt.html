@@ -1,7 +1,7 @@
 <%
 // jhtml (jhtml.js) によるサーバサイド動的レンダリング.
 // 初期表示時のグループ一覧だけをサーバ側で埋め込み、
-// それ以外の操作（文書一覧・検索・登録等）はブラウザ側JS(js/app.js)から
+// それ以外の操作（検索実行等）はブラウザ側JS(js/search.js)から
 // 既存のJSON API を fetch() で呼び出して行う.
 // $loadLib は src/配下のモジュールを動的にロードする組み込み関数 (apiServer.js提供).
 const vg = $loadLib("vectorGroup.js");
@@ -12,12 +12,13 @@ const groups = vg.listGroups();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Glint 管理画面</title>
+<title>Glint - RAG検索</title>
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
 <header>
-  <h1>✨ Glint 管理画面</h1>
+  <h1>✨ Glint</h1>
+  <nav id="appMenu" class="menu"></nav>
 </header>
 
 <main>
@@ -52,70 +53,6 @@ for (let i = 0; i < groups.length; i++) {
     </form>
     <div id="searchResult" class="markdown-body"></div>
   </section>
-
-  <section class="panel">
-    <h2>文書登録</h2>
-    <form id="putDocumentForm">
-      <div class="row">
-        <label>グループ名 <input type="text" id="putGroupName" required></label>
-      </div>
-      <div class="row">
-        <label>ファイル名 <input type="text" id="putFileName" placeholder="例: readme.txt" required></label>
-      </div>
-      <div class="row">
-        <label>参照URL (省略可) <input type="text" id="putUrl" placeholder="未指定なら自動発行"></label>
-      </div>
-      <div class="row">
-        <label>本文テキスト<br>
-          <textarea id="putText" rows="6"></textarea>
-        </label>
-      </div>
-      <div class="row">
-        <label>または PDFファイル (テキスト入力時は無視されます) <input type="file" id="putPdfFile" accept="application/pdf"></label>
-      </div>
-      <button type="submit">登録</button>
-      <span id="putStatus" class="hint"></span>
-    </form>
-  </section>
-
-  <section class="panel">
-    <h2>グループ</h2>
-    <div class="row">
-      <select id="groupSelect">
-        <option value="">-- グループを選択 --</option>
-<%
-for (let i = 0; i < groups.length; i++) {
-%>
-        <option value="${groups[i]}">${groups[i]}</option>
-<%
-}
-%>
-      </select>
-      <button id="refreshGroupsBtn">グループ一覧を更新</button>
-    </div>
-    <div class="row">
-      <label>新規グループ作成 (空の状態で作成)
-        <input type="text" id="newGroupName" placeholder="グループ名">
-      </label>
-      <button type="button" id="createGroupBtn">作成</button>
-      <span id="createGroupStatus" class="hint"></span>
-    </div>
-    <div class="row">
-      <label>許可タグ一覧 (未設定=自由生成のまま)</label>
-      <div id="allowedTagsChips"></div>
-      <input type="text" id="allowedTagInput" placeholder="タグ名を入力">
-      <button type="button" id="addAllowedTagBtn">追加</button>
-      <button type="button" id="saveAllowedTagsBtn">保存</button>
-      <span id="allowedTagsStatus" class="hint"></span>
-    </div>
-  </section>
-
-  <section class="panel">
-    <h2>文書一覧・タグ/カテゴリ集計</h2>
-    <div id="documentsArea">
-      <p class="hint">グループを選択してください。</p>
-    </div>
-  </section>
 </main>
 
 <footer>
@@ -123,6 +60,8 @@ for (let i = 0; i < groups.length; i++) {
 </footer>
 
 <script src="/js/marked.umd.js"></script>
-<script src="/js/app.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/menu.js"></script>
+<script src="/js/search.js"></script>
 </body>
 </html>
