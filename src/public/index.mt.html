@@ -43,6 +43,10 @@ for (let i = 0; i < groups.length; i++) {
       </div>
       <div class="row">
         <label>タグで絞り込み (カンマ区切り, 省略可) <input type="text" id="searchTags"></label>
+        <select id="searchTagSelect">
+          <option value="">-- グループのタグから追加 --</option>
+        </select>
+        <button type="button" id="addSearchTagBtn">追加</button>
       </div>
       <button type="submit">検索</button>
     </form>

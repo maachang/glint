@@ -11,6 +11,9 @@
     const searchForm = document.getElementById("searchForm");
     const searchGroupSelect = document.getElementById("searchGroupName");
     const searchResult = document.getElementById("searchResult");
+    const searchTagsInput = document.getElementById("searchTags");
+    const searchTagSelect = document.getElementById("searchTagSelect");
+    const addSearchTagBtn = document.getElementById("addSearchTagBtn");
 
     // JSON APIのベースパス (画面 public/ とは名前空間を分離している).
     const API_BASE = "/api";
@@ -227,6 +230,27 @@
         return md;
     };
 
+    // RAG検索用: 選択中グループのタグ一覧を取得し、タグ選択用<select>に反映する.
+    const refreshSearchTagSelect = async function (groupName) {
+        searchTagSelect.innerHTML = '<option value="">-- グループのタグから追加 --</option>';
+        if (!groupName) return;
+        try {
+            const stats = await callApi(
+                "GET",
+                "/groups/" + encodeURIComponent(groupName) + "/stats",
+            );
+            stats.tags.forEach((t) => {
+                const opt = document.createElement("option");
+                opt.value = t.name;
+                opt.textContent = t.name + " (" + t.count + ")";
+                searchTagSelect.appendChild(opt);
+            });
+        } catch (e) {
+            // タグ一覧の取得失敗時は選択肢を空のままにする (絞り込み自体は手入力で継続可能).
+            console.error("[refreshSearchTagSelect] タグ一覧の取得に失敗:", e);
+        }
+    };
+
     // ジョブ完了をポーリングする.
     const waitForJob = async function (jobId) {
         for (let i = 0; i < 300; i++) {
@@ -243,6 +267,26 @@
 
     groupSelect.addEventListener("change", () => {
         showGroupDocuments(groupSelect.value);
+    });
+
+    // リロード時に前回選択済みのグループがブラウザにより復元されると
+    // searchGroupSelect の change が発火しないため、タグの<select>が
+    // アクティブになる度 (focus) に、その時点のグループ選択値でタグ一覧を取得し直す.
+    searchTagSelect.addEventListener("focus", () => {
+        refreshSearchTagSelect(searchGroupSelect.value);
+    });
+
+    addSearchTagBtn.addEventListener("click", () => {
+        const tag = searchTagSelect.value;
+        if (!tag) return;
+        const current = searchTagsInput.value
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        if (!current.includes(tag)) {
+            current.push(tag);
+        }
+        searchTagsInput.value = current.join(", ");
     });
 
     putDocumentForm.addEventListener("submit", async (ev) => {
