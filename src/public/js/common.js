@@ -31,16 +31,33 @@ window.Glint = window.Glint || {};
             .replace(/"/g, "&quot;");
     };
 
+    // key(任意の識別子)のlocalStorageキーを組み立てる.
+    // ページのパスを含めることで、ページごとに独立して保持される.
+    const _persistKey = function (key) {
+        return "glint:" + location.pathname + ":" + key;
+    };
+
+    // 任意のkeyで値をlocalStorageに保存する (入力要素に限らず使える).
+    Glint.savePersisted = function (key, value) {
+        localStorage.setItem(_persistKey(key), value);
+    };
+
+    // 任意のkeyで保存済みの値を取得する. 未保存の場合は null.
+    Glint.loadPersisted = function (key) {
+        return localStorage.getItem(_persistKey(key));
+    };
+
     // 指定した入力要素の値を localStorage に自動保存し、ページを開いた際に復元する.
-    // キーはページのパス+要素idで構成する (ページごとに独立して保持される).
     // file入力 (アップロードファイル) は値を復元できないため対象外.
+    // ※ ボタン等から el.value をプログラムで書き換えた場合は input/change イベントが
+    //   発火しないため自動保存されない。その場合は呼び出し側で Glint.savePersisted()
+    //   を直接呼ぶこと.
     Glint.bindPersistentInputs = function (ids) {
         ids.forEach((id) => {
             const el = document.getElementById(id);
             if (!el || el.type === "file") return;
 
-            const key = "glint:" + location.pathname + ":" + id;
-            const saved = localStorage.getItem(key);
+            const saved = Glint.loadPersisted(id);
             if (saved !== null) {
                 el.value = saved;
             }
@@ -48,7 +65,7 @@ window.Glint = window.Glint || {};
             const eventName =
                 el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input";
             el.addEventListener(eventName, () => {
-                localStorage.setItem(key, el.value);
+                Glint.savePersisted(id, el.value);
             });
         });
     };

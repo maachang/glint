@@ -141,6 +141,9 @@
             current.push(tag);
         }
         searchTagsInput.value = current.join(", ");
+        // el.valueをプログラムで書き換えてもinputイベントは発火しないため、
+        // 明示的に保存する (Glint.bindPersistentInputsによる自動保存を補う).
+        window.Glint.savePersisted("searchTags", searchTagsInput.value);
     });
 
     searchForm.addEventListener("submit", async (ev) => {
@@ -160,9 +163,18 @@
                 "/groups/" + encodeURIComponent(groupName) + "/search",
                 body,
             );
-            renderMarkdown(searchResult, buildSearchResultMarkdown(res));
+            const md = buildSearchResultMarkdown(res);
+            renderMarkdown(searchResult, md);
+            // 検索結果もページを開いた際に復元できるよう保存する.
+            window.Glint.savePersisted("searchResultMarkdown", md);
         } catch (e) {
             searchResult.textContent = "エラー: " + e.message;
         }
     });
+
+    // 前回の検索結果を復元する.
+    const savedResultMarkdown = window.Glint.loadPersisted("searchResultMarkdown");
+    if (savedResultMarkdown) {
+        renderMarkdown(searchResult, savedResultMarkdown);
+    }
 })();
