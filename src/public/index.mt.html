@@ -26,7 +26,7 @@ const groups = vg.listGroups();
     <h2>RAG検索</h2>
     <form id="searchForm">
       <div class="row">
-        <label>グループ
+        <label>グループ:&nbsp;&nbsp;
           <select id="searchGroupName" required>
             <option value="">-- グループを選択 --</option>
 <%
@@ -39,18 +39,33 @@ for (let i = 0; i < groups.length; i++) {
           </select>
         </label>
       </div>
+
       <div class="row">
-        <label>質問 <input type="text" id="searchMessage" size="60" required></label>
+        <label>追加タグ選択：
+          &nbsp;&nbsp;<select id="searchTagSelect">
+            <option value="">-- グループのタグから追加 --</option>
+          </select>
+          &nbsp;&nbsp;<button type="button" id="addSearchTagBtn">追加</button>
+        </label>
       </div>
+      
       <div class="row">
-        <label>タグで絞り込み (カンマ区切り, 省略可) <input type="text" id="searchTags"></label>
-        <select id="searchTagSelect">
-          <option value="">-- グループのタグから追加 --</option>
-        </select>
-        <button type="button" id="addSearchTagBtn">追加</button>
+        <label>絞り込みタグ：
+          &nbsp;&nbsp;<input type="text" id="searchTags" placeholder="(カンマ区切り, 省略可) " size="512" style="width:60%">
+        </label>
       </div>
-      <button type="submit">検索</button>
+
+      <div class="row">
+        <label>質問：
+          &nbsp;&nbsp;<input type="text" id="searchMessage" size="512" required>
+        </label>
+      </div>
+      
+      <div class="row">
+        <button type="submit">検索</button>
+      </div>
     </form>
+    <!-- 検索結果 -->
     <div id="searchResult" class="markdown-body"></div>
   </section>
 </main>

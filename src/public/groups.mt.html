@@ -24,30 +24,34 @@ const groups = vg.listGroups();
   <section class="panel">
     <h2>グループ</h2>
     <div class="row">
-      <select id="groupSelect">
-        <option value="">-- グループを選択 --</option>
+      <label>グループ名：&nbsp;&nbsp;
+        <select id="groupSelect">
+            <option value="">-- グループを選択 --</option>
 <%
 for (let i = 0; i < groups.length; i++) {
 %>
-        <option value="${groups[i]}">${groups[i]}</option>
+            <option value="${groups[i]}">${groups[i]}</option>
 <%
 }
 %>
-      </select>
-      <button id="refreshGroupsBtn">グループ一覧を更新</button>
+        </select>&nbsp;
+        <button id="refreshGroupsBtn">グループ一覧を更新</button>
+      </label>
     </div>
     <div class="row">
-      <label>新規グループ作成 (空の状態で作成)
-        <input type="text" id="newGroupName" placeholder="グループ名">
+      <label>新規グループ作成：&nbsp;&nbsp;
+        <input type="text" id="newGroupName" placeholder="グループ名 (空の状態で作成)">&nbsp;
+        <button type="button" id="createGroupBtn">作成</button>
       </label>
-      <button type="button" id="createGroupBtn">作成</button>
       <span id="createGroupStatus" class="hint"></span>
     </div>
     <div class="row">
       <label>許可タグ一覧 (未設定=自由生成のまま)</label>
       <div id="allowedTagsChips"></div>
-      <input type="text" id="allowedTagInput" placeholder="タグ名を入力">
-      <button type="button" id="addAllowedTagBtn">追加</button>
+      <input type="text" id="allowedTagInput" placeholder="タグ名を入力">&nbsp;
+    </div>
+    <div class="row">
+      <button type="button" id="addAllowedTagBtn">追加</button>&nbsp;
       <button type="button" id="saveAllowedTagsBtn">保存</button>
       <span id="allowedTagsStatus" class="hint"></span>
     </div>

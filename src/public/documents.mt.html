@@ -1,3 +1,11 @@
+<%
+// jhtml (jhtml.js) によるサーバサイド動的レンダリング.
+// 初期表示時のグループ一覧だけをサーバ側で埋め込む.
+// グループ名は既存グループの中から選択する形式 (新規グループは先に
+// グループ管理ページ(groups.mt.html)で作成しておく運用).
+const vg = $loadLib("vectorGroup.js");
+const groups = vg.listGroups();
+%>
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -17,13 +25,25 @@
     <h2>文書登録</h2>
     <form id="putDocumentForm">
       <div class="row">
-        <label>グループ名 <input type="text" id="putGroupName" required></label>
+        <label>グループ名：&nbsp;&nbsp;
+          <select id="putGroupName" required>
+            <option value="">-- グループを選択 --</option>
+<%
+for (let i = 0; i < groups.length; i++) {
+%>
+            <option value="${groups[i]}">${groups[i]}</option>
+<%
+}
+%>
+          </select>
+        </label>
+        <span class="hint">新規グループは先に「グループ管理」ページで作成してください。</span>
       </div>
       <div class="row">
-        <label>ファイル名 <input type="text" id="putFileName" placeholder="例: readme.txt" required></label>
+        <label>ファイル名：&nbsp;&nbsp; <input type="text" id="putFileName" placeholder="例: readme.txt" required></label>
       </div>
       <div class="row">
-        <label>参照URL (省略可) <input type="text" id="putUrl" placeholder="未指定なら自動発行"></label>
+        <label>参照URL (省略可)：&nbsp;&nbsp; <input type="text" id="putUrl" placeholder="未指定なら自動発行"></label>
       </div>
       <div class="row">
         <label>本文テキスト<br>

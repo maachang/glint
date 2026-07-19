@@ -53,7 +53,7 @@ header h1 {
 }
 
 main {
-  max-width: 900px;
+  max-width: 1000px;
   margin: 0 auto;
 }
 
@@ -71,44 +71,104 @@ main {
 }
 
 .row {
-  margin-bottom: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.6rem;
+  margin-bottom: 0.9rem;
 }
 
 label {
-  display: block;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.9rem;
+  font-weight: 500;
+  color: #444;
+}
+
+/* 本文テキストのような「ラベル+改行+textarea」構成では、ラベル自体は
+   縦積みのブロックにしたいため、直下にブロック要素を持つ場合は横並びをやめる.
+   また、flexアイテムのままだとコンテンツ幅に収縮してしまい、内部のtextarea
+   (width:100%) が広がらないため、ラベル自体も行の幅いっぱいに広げる. */
+label:has(> br),
+label:has(> textarea) {
+  display: block;
+  width: 100%;
 }
 
 input[type="text"],
 select,
 textarea {
-  width: 100%;
+  min-width: 200px;
   max-width: 480px;
-  padding: 0.4rem 0.6rem;
-  margin-top: 0.3rem;
+  padding: 0.5rem 0.7rem;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 0.95rem;
+  background: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(74, 125, 255, 0.15);
+}
+
+input[type="text"]::placeholder,
+textarea::placeholder {
+  color: #9aa3b2;
+}
+
+/* 文字入力量が多くなりやすい項目は、表示枠を広めにとる. */
+#searchTags,
+#searchMessage,
+#putFileName,
+#putUrl {
+  width: 100%;
+  max-width: 800px;
 }
 
 textarea {
+  display: block;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
+  margin-top: 0.4rem;
   font-family: inherit;
+  resize: vertical;
 }
 
 button {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 4px;
-  padding: 0.5rem 1.2rem;
+  border-radius: 6px;
+  padding: 0.5rem 1.3rem;
   font-size: 0.95rem;
   cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.05s ease;
 }
 
 button:hover {
-  opacity: 0.9;
+  opacity: 0.88;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+/* 「追加」「更新」のような補助的な操作ボタンは主要ボタンより控えめな見た目にする. */
+button[id^="add"],
+button[id^="refresh"],
+button[id^="save"] {
+  background: #fff;
+  color: var(--accent);
+  border: 1px solid var(--accent);
 }
 
 .hint {
@@ -213,10 +273,13 @@ pre {
 @media (prefers-color-scheme: dark) {
   body { background: #15181d; color: #e6e6e6; }
   .panel { background: #1d2128; border-color: #333944; }
-  input, select, textarea { background: #10131a; color: #e6e6e6; border-color: #333944; }
+  label { color: #c7cdd6; }
+  input[type="text"], select, textarea { background: #10131a; color: #e6e6e6; border-color: #333944; }
+  input[type="text"]::placeholder, textarea::placeholder { color: #666f7d; }
   pre { background: #10131a; border-color: #333944; }
   .tag-chip { background: #24314f; color: #b9caff; }
   .menu-link { background: #1d2128; border-color: #333944; color: #e6e6e6; }
+  button[id^="add"], button[id^="refresh"], button[id^="save"] { background: #1d2128; }
   th, td { border-color: #333944; }
   .markdown-body { background: #10131a; border-color: #333944; }
   .markdown-body pre, .markdown-body code { background: #1d2128; }
