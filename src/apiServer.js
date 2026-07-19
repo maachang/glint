@@ -17,6 +17,7 @@
  *   POST   /api/groups/:group/documents             文書登録 (非同期. 即時にjobIdを返す)
  *   DELETE /api/groups/:group/documents/:fileName  文書削除
  *   GET    /api/groups/:group/documents/:fileName/raw  元データの取得 (url自動発行時のみ有効)
+ *   PUT    /api/groups/:group/documents/:fileName/tags 登録済み文書のtag/category修正
  *   GET    /api/jobs/:jobId                        文書登録ジョブの状態確認
  *   POST   /api/groups/:group/search               RAG検索 (embedding検索 + 推論. 同期)
  *   GET    /api/groups/:group/backup               グループのバックアップ (.vgs/.vss + 元データ)
@@ -664,6 +665,38 @@
         _sendJson(res, 200, stats);
     };
 
+    // PUT /api/groups/:group/documents/:fileName/tags
+    // body: { tag: string|null, category: string[] }
+    // 登録済み文書のtag/categoryを修正する (要約本文・埋め込みチャンクは変更しない).
+    const _handleUpdateDocumentTags = async function (req, res, groupName, fileName) {
+        const body = await _readJsonBody(req);
+        if (body.tag !== undefined && body.tag !== null && typeof body.tag !== "string") {
+            _sendError(res, 400, "tag must be a string or null.");
+            return;
+        }
+        if (body.category !== undefined && !Array.isArray(body.category)) {
+            _sendError(res, 400, "category (Array<string>) is required in the request body.");
+            return;
+        }
+        let result;
+        try {
+            result = await vg.updateDocumentTagCategory(
+                groupName,
+                fileName,
+                body.tag,
+                body.category || [],
+            );
+        } catch (e) {
+            if (e.code === "ENOENT") {
+                _sendError(res, 404, e.message);
+                return;
+            }
+            _sendError(res, 400, e.message);
+            return;
+        }
+        _sendJson(res, 200, result);
+    };
+
     // GET /api/groups/:group/tags
     // グループ単位で許可されているタグ一覧を取得する (空配列 = 制限なし・自由生成).
     const _handleGetAllowedTags = async function (req, res, groupName) {
@@ -969,6 +1002,15 @@
                 seg[4] === "raw"
             ) {
                 _handleGetRawDocument(req, res, groupName, seg[3]);
+                return;
+            }
+            // PUT /api/groups/:group/documents/:fileName/tags
+            if (
+                req.method === "PUT" &&
+                seg.length === 5 &&
+                seg[4] === "tags"
+            ) {
+                await _handleUpdateDocumentTags(req, res, groupName, seg[3]);
                 return;
             }
         }

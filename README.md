@@ -233,7 +233,7 @@ PORT=3000 node src/apiServer.js
 | `src/sync.js` | 複数 Node.js プロセス間の同期 (ファイルロック) 処理 |
 | `src/util.js` | 汎用ユーティリティ |
 | `src/vectorGroup.js` | RAG文書のベクトルDB (自前実装) への登録・検索・集計処理 |
-| `src/metaStore.js` | SQLite (node:sqlite/bun:sqlite) によるタグ/カテゴリ集計・FTS5全文検索・検索ログの管理 |
+| `src/metaStore.js` | SQLite (node:sqlite/bun:sqlite) によるRAGデータの唯一の格納先。チャンク本体・文書サマリー本体（旧`.vgs`/`.vss`相当）、タグ/カテゴリ集計、FTS5全文検索、検索ログ、グループ一覧・許可タグ一覧を管理 |
 | `src/vectorSummary.js` | 文書サマリー情報の管理 |
 | `src/xor128.js` | 乱数生成 |
 | `src/apiServer.js` | 文書登録・RAG検索・バックアップ/レストア・Web画面配信を提供する HTTP APIサーバー |

@@ -2368,6 +2368,81 @@
         return normalizedTags;
     };
 
+    /**
+     * 登録済み文書のtag/categoryを修正する (metaStoreのdocumentsテーブルのみ更新).
+     *
+     * 文書登録時に生成された要約本文・埋め込みチャンク(topIndex含む)は一切
+     * 変更しない. あくまでタグ/カテゴリ集計・RAG検索時の事前フィルタ用の
+     * メタ情報のみを修正対象とする.
+     *
+     * グループに許可タグ一覧が設定されている場合、tagはその一覧内(または
+     * "その他")のいずれかでなければならない. categoryは常に自由入力.
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param {string}   groupName     グループ名
+     * @param {string}   textFileName  対象の文書ファイル名 (拡張子込み)
+     * @param {string}   tag           修正後のタグ (空文字/null可)
+     * @param {string[]} category      修正後のカテゴリ一覧
+     * @param {string}   dirPath       [*]ディレクトリパス
+     * @return {Promise<{name: string, tag: string|null, category: string[]}>}
+     * @throws {Error} グループ・文書が存在しない場合 (.code = "ENOENT")、
+     *                  許可タグ一覧に無いタグが指定された場合
+     */
+    const updateDocumentTagCategory = async function (
+        groupName,
+        textFileName,
+        tag,
+        category,
+        dirPath,
+    ) {
+        dirPath = _getVectorStoreDir(dirPath);
+        const textDocName = _cutExtension(textFileName);
+        const pg = _trimPathGroup(dirPath, groupName);
+        dirPath = pg.path;
+        groupName = pg.groupName;
+
+        // tag/categoryを正規化する.
+        tag = typeof tag === "string" ? tag.trim() : "";
+        tag = tag.length > 0 ? tag : null;
+        category = Array.isArray(category) ? _normalizeTags(category) : [];
+
+        if (!_groupExists(groupName, dirPath)) {
+            const err = new Error("VectorGroup file does not exist: " + groupName);
+            err.code = "ENOENT";
+            throw err;
+        }
+
+        // 対象文書が実際に存在するか確認する.
+        const summaryEntries = metaStore.getSummaryEntries(groupName, dirPath);
+        const exists = summaryEntries.some(function (e) {
+            return e.docName === textDocName;
+        });
+        if (!exists) {
+            const err = new Error("Document does not exist: " + textDocName);
+            err.code = "ENOENT";
+            throw err;
+        }
+
+        // 許可タグ一覧が設定されている場合、tagがその一覧内(または"その他")かを検証する.
+        const allowedTags = metaStore.getAllowedTagsIfExists(groupName, dirPath);
+        if (
+            Array.isArray(allowedTags) &&
+            allowedTags.length > 0 &&
+            tag != null &&
+            tag !== "その他" &&
+            allowedTags.indexOf(tag) === -1
+        ) {
+            throw new Error(
+                "許可されていないタグです (許可タグ一覧: " +
+                    JSON.stringify(allowedTags) +
+                    "): " + tag,
+            );
+        }
+
+        metaStore.upsertDocumentMeta(groupName, textDocName, tag, category, true, dirPath);
+        return { name: textDocName, tag, category };
+    };
+
     // ========================================================
     // モジュールエクスポート
     // ========================================================
@@ -2392,5 +2467,6 @@
         importGroupFiles,
         getAllowedTags,
         setAllowedTags,
+        updateDocumentTagCategory,
     };
 })();

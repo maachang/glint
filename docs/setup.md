@@ -72,7 +72,7 @@ npm install
     // ─── ファイルパス ───────────────────────────────────
     // 各種相対パスの基準ディレクトリ.
     "dirPath": "./",
-    // ベクトルストア (.vgs/.vss) の格納先.
+    // ベクトルストア (glint.sqlite) の格納先.
     "vectorStorePath": "./vectorStore",
     // 文書登録でurl未指定時にアップロード元データを保存する場所.
     "srcDocumentPath": "./documents",
@@ -139,7 +139,7 @@ npm install
 | `healthCheckTiming` | `15000` | ヘルスチェック間隔 (ミリ秒)。`apiType: "llamacpp"` の接続先のみ対象 |
 | `fetchTimeout` | `300000` | HTTPリクエストのタイムアウト (ミリ秒) |
 | `dirPath` | `"./"` | 各種相対パスの基準ディレクトリ |
-| `vectorStorePath` | `"./vectorStore"` | `.vgs`/`.vss` の格納先 |
+| `vectorStorePath` | `"./vectorStore"` | `glint.sqlite`（チャンク・サマリー・タグ集計等の全データ）の格納先 |
 | `srcDocumentPath` | `"./docs"` | url未指定時の元データ格納先 |
 | `chunkSize` | `300` | 1チャンクの最大文字数 |
 | `overlapSize` | `chunkSize × 0.25` | チャンク間オーバーラップ文字数 |
