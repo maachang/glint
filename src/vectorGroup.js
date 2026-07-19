@@ -58,6 +58,7 @@
     const Prompt = require("./prompt");
     const util = require("./util");
     const sync = require("./sync");
+    const metaStore = require("./metaStore");
 
     // ═══════════════════════════════════════════════════════════════
     // 定数
@@ -288,12 +289,14 @@
          * @param  {Float32Array}  queryEmb    クエリのベクトル (検索したいテキストの埋め込み).
          * @param  {VectorChunk[]} [candidates] 検索対象チャンクを絞り込みたい場合に設定する
          *                                     (tags/categoryでの事前フィルタ用). 省略時は全チャンク対象.
-         * @param  {string}        [queryText]     ハイブリッド検索用のクエリ原文 (キーワードスコア計算に使用).
+         * @param  {Map<string,number>} [keywordScoreMap]  ハイブリッド検索用のキーワードスコア
+         *                                          (metaStore.getKeywordScoreMap()の結果).
+         *                                          キー: "docName:indexNo", 値: 0〜1のスコア.
          *                                          省略時はコサイン類似度のみでスコアリングする (従来通り).
-         * @param  {number}        [keywordWeight]  キーワードスコアの重み (0〜1). queryText指定時のみ有効.
+         * @param  {number}        [keywordWeight]  キーワードスコアの重み (0〜1). keywordScoreMap指定時のみ有効.
          * @return {number}        out[] に実際に書き込んだ件数.
          */
-        searchEmbedding(out, queryEmb, candidates, queryText, keywordWeight) {
+        searchEmbedding(out, queryEmb, candidates, keywordScoreMap, keywordWeight) {
             const docs = candidates || this._chunks;
             const len = docs.length;
             if (len === 0) {
@@ -302,11 +305,9 @@
 
             // ハイブリッド検索 (キーワードスコアの合成) を行うかどうか.
             const useHybrid =
-                typeof queryText === "string" &&
-                queryText.length > 0 &&
+                keywordScoreMap instanceof Map &&
                 typeof keywordWeight === "number" &&
                 keywordWeight > 0;
-            const queryBigrams = useHybrid ? _toBigramSet(queryText) : null;
 
             // ── スコア計算 ──
             // キャッシュから一時オブジェクトを取り出し、各チャンクのスコアを計算する.
@@ -318,9 +319,10 @@
                 // コサイン類似度を計算.
                 const vectorScore = _score(queryEmb, tmp.embedding);
                 if (useHybrid) {
-                    // 文字2-gramのオーバーラップ率 (キーワードスコア) を合成する.
+                    // FTS5(BM25)によるキーワードスコアを合成する.
                     // (embeddingだけでは固有名詞等の完全一致検索に弱いことを補うため)
-                    const keywordScore = _keywordScore(queryBigrams, tmp.text);
+                    const keywordScore =
+                        keywordScoreMap.get(docs[i].docName + ":" + docs[i].indexNo) || 0;
                     tmp.score =
                         (1 - keywordWeight) * vectorScore +
                         keywordWeight * keywordScore;
@@ -385,57 +387,6 @@
         }
         // ゼロ除算防止のために 1e-10 を加算.
         return dot / (Math.sqrt(na * nb) + 1.0e-10);
-    };
-
-    /**
-     * 文字列を文字2-gram(バイグラム)の集合に変換する.
-     *
-     * 日本語は分かち書きされていないため形態素解析が必要になりがちだが、
-     * それを避けるためのシンプルな手法として文字2-gramを採用する
-     * (固有名詞等の部分一致検索に強く、形態素解析器への依存が無い).
-     *
-     * @param  {string} text
-     * @return {Set<string>}
-     */
-    const _toBigramSet = function (text) {
-        const set = new Set();
-        const len = text.length;
-        if (len < 2) {
-            if (len === 1) {
-                set.add(text);
-            }
-            return set;
-        }
-        for (let i = 0; i < len - 1; i++) {
-            set.add(text.substring(i, i + 2));
-        }
-        return set;
-    };
-
-    /**
-     * クエリの2-gram集合と対象テキストとのオーバーラップ率 (キーワードスコア) を計算する.
-     *
-     * 「クエリの2-gramのうち何割が対象テキストに含まれるか」を 0〜1 のスコアとして返す.
-     *
-     * @param  {Set<string>} queryBigrams  クエリ文字列の2-gram集合 (_toBigramSet() の結果).
-     * @param  {string}      text          対象チャンクのテキスト.
-     * @return {number}      0〜1 のスコア (queryBigramsが空の場合は 0).
-     */
-    const _keywordScore = function (queryBigrams, text) {
-        if (queryBigrams.size === 0) {
-            return 0;
-        }
-        const textBigrams = _toBigramSet(text);
-        if (textBigrams.size === 0) {
-            return 0;
-        }
-        let hit = 0;
-        for (const bg of queryBigrams) {
-            if (textBigrams.has(bg)) {
-                hit++;
-            }
-        }
-        return hit / queryBigrams.size;
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -1278,6 +1229,18 @@
             // topIndex(タグ、カテゴリなど)
             let topIndex = "";
 
+            // metaStore(SQLite)へのタグ/カテゴリ登録用 (jsonValueをクリアする前に確保).
+            const metaParsed = jsonValue != null;
+            const metaTag =
+                metaParsed && typeof jsonValue.tag === "string" ? jsonValue.tag : null;
+            const metaCategory = metaParsed
+                ? Array.isArray(jsonValue.category)
+                    ? jsonValue.category
+                    : jsonValue.category
+                      ? [jsonValue.category]
+                      : []
+                : [];
+
             // jsonパースが成功している場合.
             if (jsonValue != null) {
                 // ファイル名をタイトルとしてセット.
@@ -1436,6 +1399,27 @@
                 // 更新されたチャンク群とサマリーをそれぞれ保存
                 _saveGroup(groupName, list, dirPath);
                 _saveSummary(groupName, summary, dirPath);
+
+                // metaStore(SQLite)側のタグ/カテゴリ集計・全文検索インデックスも更新する.
+                // (.vgs/.vssとは独立したデータのため、失敗しても文書登録自体は失敗させない)
+                try {
+                    metaStore.upsertDocumentMeta(
+                        groupName,
+                        textDocName,
+                        metaTag,
+                        metaCategory,
+                        metaParsed,
+                        dirPath,
+                    );
+                    metaStore.replaceDocumentChunkFts(
+                        groupName,
+                        textDocName,
+                        chunkList,
+                        dirPath,
+                    );
+                } catch (e) {
+                    console.warn("#metaStoreの更新に失敗: " + e.message);
+                }
                 console.debug("ファイル出力完了");
             } finally {
                 // VectorGroupファイル更新終了.
@@ -1527,6 +1511,12 @@
                 // 削除失敗した場合はエラーをスロー (両方試してからチェックする)
                 if (err1) throw err1;
                 if (err2) throw err2;
+                // metaStore(SQLite)側のグループデータも削除する.
+                try {
+                    metaStore.deleteGroup(groupName, dirPath);
+                } catch (e) {
+                    console.warn("#metaStoreのグループ削除に失敗: " + e.message);
+                }
                 return true;
             }
 
@@ -1539,6 +1529,14 @@
             _saveGroup(groupName, list, dirPath);
             summary.getList().delete(textDocName);
             _saveSummary(groupName, summary, dirPath);
+
+            // metaStore(SQLite)側のタグ/カテゴリ集計・全文検索インデックスからも削除する.
+            try {
+                metaStore.deleteDocumentMeta(groupName, textDocName, dirPath);
+                metaStore.deleteDocumentChunkFts(groupName, textDocName, dirPath);
+            } catch (e) {
+                console.warn("#metaStoreの削除に失敗: " + e.message);
+            }
             return true;
         } finally {
             // VectorGroupファイル更新終了.
@@ -1686,13 +1684,25 @@
                 options.categories,
             );
 
+            // ハイブリッド検索を行う場合、FTS5(全文検索)インデックスを使用する.
+            // このモジュール導入前から存在するグループの場合はインデックスが
+            // 無いため、初回のみ.vgsの全チャンクから一括構築する.
+            if (hybridSearch) {
+                try {
+                    metaStore.ensureChunkFtsBackfilled(vg.groupName, vg, vg.dirPath);
+                } catch (e) {
+                    console.warn("#chunk_ftsのバックフィルに失敗: " + e.message);
+                    hybridSearch = false;
+                }
+            }
+
             // クエリを文字数制限でチャンク分割する
             const chunks = _stringToChunks(message, chunkSize, overlap);
             const list = [];
             const ary = new Array(length);
             const len = chunks.length;
 
-            let i, semb, resLen, j;
+            let i, semb, resLen, j, keywordScoreMap;
             for (i = 0; i < len; i++) {
                 // クエリチャンクを埋め込みベクトルに変換
                 semb = await LlamaCpp.getEmbedding(
@@ -1702,12 +1712,16 @@
                     embObj && embObj.apiKey,
                     signal,
                 );
+                // FTS5(BM25)によるキーワードスコアを取得 (ハイブリッド検索用).
+                keywordScoreMap = hybridSearch
+                    ? metaStore.getKeywordScoreMap(vg.groupName, chunks[i], vg.dirPath)
+                    : null;
                 // VectorGroup からベクトルに近い上位 length 件を取得 (絞り込み済み候補が対象)
                 resLen = vg.searchEmbedding(
                     ary,
                     semb,
                     candidates,
-                    chunks[i],
+                    keywordScoreMap,
                     hybridKeywordWeight,
                 );
                 resLen = resLen > length ? length : resLen;
@@ -2180,7 +2194,26 @@
         // 組み込み検索.
         const resSearchEmb = await searchEmbedding(vg, message, options);
         // rag検索.
-        return await searchInference(resSearchEmb, message, options);
+        const result = await searchInference(resSearchEmb, message, options);
+
+        // 検索ログの記録 (conf.searchLogEnabled=true の場合のみ. デフォルトOFF).
+        const conf = Config.getInstance();
+        if (conf.searchLogEnabled) {
+            try {
+                metaStore.logSearch(
+                    vg.groupName,
+                    message,
+                    (options || {}).tags,
+                    (options || {}).categories,
+                    result.list,
+                    vg.dirPath,
+                );
+            } catch (e) {
+                console.warn("#検索ログの記録に失敗: " + e.message);
+            }
+        }
+
+        return result;
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -2300,57 +2333,37 @@
     const getGroupStats = async function (groupName, dirPath) {
         const vgObj = await loadVectorGroup(groupName, dirPath);
         const summary = vgObj.getSummary();
-        const names = summary.getDocuments();
-        const totalDocuments = names.length;
 
-        const tagCounts = new Map();
-        const categoryCounts = new Map();
-        let unparsedDocuments = 0;
+        // このモジュール導入前から存在するグループの場合、metaStore(SQLite)側に
+        // データが無いため、.vssの内容から一括構築する (2回目以降は即戻る).
+        metaStore.ensureDocumentsBackfilled(
+            vgObj.groupName,
+            summary,
+            _resultSummayToJson,
+            vgObj.dirPath,
+        );
 
-        for (let i = 0; i < names.length; i++) {
-            const text = summary.getText(names[i]);
-            const parsed = _resultSummayToJson(text);
-            if (parsed == null) {
-                unparsedDocuments++;
-                continue;
-            }
-            // tag は1文書1値の想定 (String).
-            if (typeof parsed.tag === "string" && parsed.tag.length > 0) {
-                tagCounts.set(parsed.tag, (tagCounts.get(parsed.tag) || 0) + 1);
-            }
-            // category は複数値の想定 (Array). 単一値で返ってきた場合も配列扱いにする.
-            const categories = Array.isArray(parsed.category)
-                ? parsed.category
-                : parsed.category
-                  ? [parsed.category]
-                  : [];
-            for (let j = 0; j < categories.length; j++) {
-                const c = categories[j];
-                if (typeof c === "string" && c.length > 0) {
-                    categoryCounts.set(c, (categoryCounts.get(c) || 0) + 1);
-                }
-            }
-        }
+        const totals = metaStore.getDocumentTotals(vgObj.groupName, vgObj.dirPath);
+        const totalDocuments = totals.total;
 
-        // Map を {name, count, ratio} 配列に変換し、件数の多い順に並べる.
-        const toSortedArray = function (counts) {
-            const ret = [];
-            counts.forEach(function (count, name) {
-                ret.push({
-                    name,
-                    count,
-                    ratio: totalDocuments > 0 ? count / totalDocuments : 0,
-                });
+        // {name, count} 配列に ratio を付与して返す (件数の多い順のまま).
+        const toRatioArray = function (rows) {
+            return rows.map(function (row) {
+                return {
+                    name: row.name,
+                    count: row.count,
+                    ratio: totalDocuments > 0 ? row.count / totalDocuments : 0,
+                };
             });
-            ret.sort((a, b) => b.count - a.count);
-            return ret;
         };
 
         return {
             totalDocuments,
-            unparsedDocuments,
-            tags: toSortedArray(tagCounts),
-            categories: toSortedArray(categoryCounts),
+            unparsedDocuments: totals.unparsed,
+            tags: toRatioArray(metaStore.getTagCounts(vgObj.groupName, vgObj.dirPath)),
+            categories: toRatioArray(
+                metaStore.getCategoryCounts(vgObj.groupName, vgObj.dirPath),
+            ),
         };
     };
 

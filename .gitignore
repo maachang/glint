@@ -14,3 +14,7 @@ glint.json
 .claudeWork
 tmp
 log
+
+# metaStore.js (SQLite) が生成するファイル (タグ/カテゴリ集計・FTS5・検索ログ).
+*.sqlite
+*.sqlite-*

@@ -759,6 +759,7 @@
             vectorSearchLength: conf.vectorSearchLength,
             hybridSearch: conf.hybridSearch,
             hybridKeywordWeight: conf.hybridKeywordWeight,
+            searchLogEnabled: conf.searchLogEnabled,
             ragRequestChunkLength: conf.ragRequestChunkLength,
             ragReasoning: conf.ragReasoning,
             ragRerank: conf.ragRerank,

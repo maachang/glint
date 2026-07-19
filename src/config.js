@@ -443,6 +443,12 @@
              */
             this.hybridKeywordWeight = DEFAULT_HYBRID_KEYWORD_WEIGHT;
 
+            /**
+             * 検索ログ(質問文・引用文書一覧等)をSQLite(metaStore.js)に記録するかどうか.
+             * デフォルトOFF (質問文などの実データが蓄積されるため、明示的な opt-in とする).
+             */
+            this.searchLogEnabled = false;
+
             /** RAG プロンプトに含めるチャンク数 */
             this.ragRequestChunkLength = DEFAULT_RAG_REQUEST_CHANK_LENGTH;
 
@@ -717,6 +723,9 @@
                     "hybridKeywordWeight",
                     this.hybridKeywordWeight,
                 ),
+            );
+            this.searchLogEnabled = Conv.getBoolean(
+                _mapToGetValue(json, "searchLogEnabled", this.searchLogEnabled),
             );
             this.ragRequestChunkLength = Conv.getInt(
                 _mapToGetValue(

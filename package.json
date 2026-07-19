@@ -4,6 +4,9 @@
   "description": "localLLM(llama.cpp)を使ったRAGシステム",
   "private": true,
   "main": "src/apiServer.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "start": "node src/apiServer.js"
   },

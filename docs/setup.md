@@ -4,7 +4,7 @@ Glint のセットアップ手順と `glint.json` の全設定項目リファレ
 
 ## 1. 必要要件
 
-- Node.js **18 以上**（標準の `fetch` API を使用するため）
+- Node.js **22.5 以上**（標準の `fetch` API、および `node:sqlite`（実験的機能。`src/metaStore.js`が使用）のため）。Bunで動かす場合は `bun:sqlite` を使用する。
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) の `--server` モードで起動した、OpenAI API 互換サーバーが最低2台（またはURLは同一で共用も可）
   - **埋め込み用**: `/v1/embeddings` に対応したモデル（例: `embeddinggemma`）
   - **推論用**: `/v1/chat/completions` に対応したチャット補完モデル
@@ -104,6 +104,9 @@ npm install
     "ragRerank": true,
     // リランキング対象とする候補文書数の上限.
     "rerankCandidateLength": 20,
+    // 検索ログ(質問文・タグ/カテゴリ・引用文書一覧)をSQLite(metaStore.js)に記録するか.
+    // デフォルトOFF (質問文などの実データが蓄積されるため明示的なopt-in).
+    "searchLogEnabled": false,
 
     // ─── プロセス間ロック ────────────────────────────────
     // sync.js のロック待ちタイムアウト (ミリ秒, -1=無限待ち).
@@ -151,6 +154,7 @@ npm install
 | `ragReasoning` | `null` | RAG推論時の推論モード on/off/未指定 |
 | `ragRerank` | `true` | 候補文書をLLMで質問との関連度順に並び替える(リランキング)かどうか |
 | `rerankCandidateLength` | `20` | リランキング対象とする候補文書数の上限 |
+| `searchLogEnabled` | `false` | 検索ログ(質問文・引用文書一覧)をSQLiteに記録するか |
 | `lockTimeout` | `-1` | ロック待ちタイムアウト (-1=無限待ち) |
 | `logDir` | `"./log"` | ローカルログの出力先ディレクトリ |
 | `logFile` | `"logout"` | ローカルログのファイル名 (拡張子抜き) |
