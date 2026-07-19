@@ -26,8 +26,8 @@ const groups = vg.listGroups();
     <h2>新規グループ追加</h2>
     <div class="row">
         <label>&nbsp;&nbsp;新規グループ名：&nbsp;&nbsp;
-        <input type="text" id="newGroupName" placeholder="グループ名 (空の状態で作成)">&nbsp;
-        <button type="button" id="createGroupBtn">作成</button>
+        <input type="text" id="newGroupName" placeholder="グループ名 (空の状態で作成)" size="128">
+        &nbsp;<button type="button" id="createGroupBtn">作成</button>
         </label>
         <span id="createGroupStatus" class="hint"></span>
     </div>
@@ -54,19 +54,20 @@ for (let i = 0; i < groups.length; i++) {
     </div>
     
     <div class="row">
-      <label>&nbsp;&nbsp;許可タグ一覧：&nbsp;&nbsp;</label>
-      <input type="text" id="allowedTagInput" placeholder="未設定=自由生成のまま">
+      <label>&nbsp;&nbsp;許可タグ入力：&nbsp;&nbsp;</label>
+      <input type="text" id="allowedTagInput" placeholder="プログラム, 生活, アウトドア など" size="128">
     </div>
     <div class="row">
       <div id="allowedTagsChips"></div>
     </div>
     <div class="row">
-      <button type="button" id="addAllowedTagBtn">追加</button>&nbsp;
+      &nbsp;&nbsp;<button type="button" id="addAllowedTagBtn">追加</button>&nbsp;
       <button type="button" id="saveAllowedTagsBtn">保存</button>
       <span id="allowedTagsStatus" class="hint"></span>
     </div>
     <div class="row">
-      <div class="hint">&nbsp;&nbsp;&nbsp;&nbsp;※&nbsp;許可タグを「追加」して「保存」する事で、文書登録時に許可タグ一覧の範囲内でタグの割当が行われます。</div>
+      <div class="hint">&nbsp;&nbsp;&nbsp;&nbsp;※&nbsp;許可タグ入力を行い「追加」をして「保存＝確定」する事で、文書登録時に許可タグ一覧の範囲内でタグ割当が行われます。<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;　&nbsp;未設定の場合は、AIが適切なタグ名を割り当てます。</div>
     </div>
   </section>
 
