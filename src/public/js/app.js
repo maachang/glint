@@ -437,5 +437,14 @@
     });
 
     // 初期表示.
-    refreshGroups();
+    // リロード時、ブラウザが前回選択済みの値を <select> に復元する場合があるが、
+    // これは change イベントを発火させないため、復元された値があれば明示的に
+    // 文書一覧・許可タグ一覧の表示を行う (groupSelect.value を programmatic に
+    // 上書きする _fillGroupOptions() 内の代入も同様に change を発火させない).
+    refreshGroups().then(() => {
+        if (groupSelect.value) {
+            showGroupDocuments(groupSelect.value);
+            loadAllowedTags(groupSelect.value);
+        }
+    });
 })();

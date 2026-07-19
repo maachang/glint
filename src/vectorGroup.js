@@ -2439,23 +2439,46 @@
     };
 
     /**
+     * [private]タグ一覧を正規化する (前後空白除去・空文字除去・重複除去).
+     * @param  {string[]} tags
+     * @return {string[]}
+     */
+    const _normalizeTags = function (tags) {
+        const seen = new Set();
+        const ret = [];
+        for (let i = 0; i < tags.length; i++) {
+            const tag = typeof tags[i] === "string" ? tags[i].trim() : "";
+            if (tag.length === 0 || seen.has(tag)) {
+                continue;
+            }
+            seen.add(tag);
+            ret.push(tag);
+        }
+        return ret;
+    };
+
+    /**
      * グループ単位で許可するタグ一覧を設定する.
      * 空配列を設定した場合は制限なし (LLMが自由にタグを生成する) に戻る.
+     * 前後空白・空文字・重複は正規化して除去される.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param {string}   groupName  グループ名
      * @param {string[]} tags       許可するタグ一覧
      * @param {string}   dirPath    [*]ディレクトリパス
+     * @return {Promise<string[]>} 正規化後に実際に保存されたタグ一覧
      */
     const setAllowedTags = async function (groupName, tags, dirPath) {
         dirPath = _getVectorStoreDir(dirPath);
         const pg = _trimPathGroup(dirPath, groupName);
         groupName = pg.groupName;
+        const normalizedTags = _normalizeTags(tags);
         const lockUk = await sync.lock(groupName);
         try {
             const summary = _loadVectorSummary(groupName, pg.path);
-            summary.setAllowedTags(tags);
+            summary.setAllowedTags(normalizedTags);
             _saveSummary(groupName, summary, pg.path);
+            return normalizedTags;
         } finally {
             sync.unlock(groupName, lockUk);
         }

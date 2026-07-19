@@ -658,7 +658,20 @@
     // GET /api/groups/:group/tags
     // グループ単位で許可されているタグ一覧を取得する (空配列 = 制限なし・自由生成).
     const _handleGetAllowedTags = async function (req, res, groupName) {
-        const tags = await vg.getAllowedTags(groupName);
+        let tags;
+        try {
+            tags = await vg.getAllowedTags(groupName);
+        } catch (e) {
+            if (e.code === "ENOENT") {
+                _sendError(
+                    res,
+                    404,
+                    "The specified group does not exist: " + groupName,
+                );
+                return;
+            }
+            throw e;
+        }
         _sendJson(res, 200, { tags });
     };
 
@@ -671,8 +684,21 @@
             _sendError(res, 400, "tags (Array<string>) is required in the request body.");
             return;
         }
-        await vg.setAllowedTags(groupName, body.tags);
-        _sendJson(res, 200, { group: groupName, tags: body.tags });
+        let savedTags;
+        try {
+            savedTags = await vg.setAllowedTags(groupName, body.tags);
+        } catch (e) {
+            if (e.code === "ENOENT") {
+                _sendError(
+                    res,
+                    404,
+                    "The specified group does not exist: " + groupName,
+                );
+                return;
+            }
+            throw e;
+        }
+        _sendJson(res, 200, { group: groupName, tags: savedTags });
     };
 
     // ═══════════════════════════════════════════════════════════════
