@@ -142,6 +142,75 @@
             .replace(/"/g, "&quot;");
     };
 
+    // ─── Markdown表示 (RAG検索結果) ───────────────────────
+
+    // marked.js が生成したHTMLをそのまま innerHTML に入れると、LLMの回答に
+    // 悪意ある/意図しないタグが含まれた場合にXSSの危険があるため、
+    // 許可リスト方式のタグ・属性のみを残す簡易サニタイザを通す.
+    const MARKDOWN_ALLOWED_TAGS = new Set([
+        "P", "BR", "STRONG", "EM", "A", "UL", "OL", "LI", "CODE", "PRE",
+        "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "TABLE", "THEAD",
+        "TBODY", "TR", "TD", "TH", "HR", "DEL", "SPAN",
+    ]);
+    const MARKDOWN_ALLOWED_ATTRS = { A: ["href", "title"] };
+    // 中身ごと完全に除去するタグ (人が読むためのテキストを持たないため).
+    const MARKDOWN_STRIP_ENTIRELY_TAGS = new Set(["SCRIPT", "STYLE"]);
+
+    const sanitizeHtml = function (html) {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const walk = function (node) {
+            // 走査中に子要素を削除/置換するため、事前に配列化しておく.
+            Array.from(node.childNodes).forEach((child) => {
+                if (child.nodeType === Node.ELEMENT_NODE) {
+                    if (MARKDOWN_STRIP_ENTIRELY_TAGS.has(child.tagName)) {
+                        // script/style は中身のテキストも表示すべきではないため完全に削除する.
+                        child.remove();
+                        return;
+                    }
+                    if (!MARKDOWN_ALLOWED_TAGS.has(child.tagName)) {
+                        // 許可されていないタグはテキストとして展開する (中身のテキストは残す).
+                        child.replaceWith(document.createTextNode(child.textContent));
+                        return;
+                    }
+                    const allowedAttrs = MARKDOWN_ALLOWED_ATTRS[child.tagName] || [];
+                    Array.from(child.attributes).forEach((attr) => {
+                        if (!allowedAttrs.includes(attr.name)) {
+                            child.removeAttribute(attr.name);
+                            return;
+                        }
+                        // href は http(s)/mailto/アンカーのみ許可 (javascript: 等を防ぐ).
+                        if (
+                            attr.name === "href" &&
+                            !/^(https?:|mailto:|#)/i.test(attr.value)
+                        ) {
+                            child.removeAttribute(attr.name);
+                        }
+                    });
+                    if (child.tagName === "A") {
+                        child.setAttribute("target", "_blank");
+                        child.setAttribute("rel", "noopener noreferrer");
+                    }
+                    walk(child);
+                } else if (child.nodeType !== Node.TEXT_NODE) {
+                    // コメント等は除去する.
+                    child.remove();
+                }
+            });
+        };
+        walk(doc.body);
+        return doc.body.innerHTML;
+    };
+
+    // Markdownテキストをサニタイズ済みHTMLとして要素に描画する.
+    // marked.js (public/js/marked.umd.js) が読み込めていない場合はプレーンテキスト表示にフォールバックする.
+    const renderMarkdown = function (el, markdownText) {
+        if (typeof marked === "undefined") {
+            el.textContent = markdownText;
+            return;
+        }
+        el.innerHTML = sanitizeHtml(marked.parse(markdownText));
+    };
+
     // ジョブ完了をポーリングする.
     const waitForJob = async function (jobId) {
         for (let i = 0; i < 300; i++) {
@@ -220,7 +289,7 @@
                 "/groups/" + encodeURIComponent(groupName) + "/search",
                 body,
             );
-            searchResult.textContent = res.answer;
+            renderMarkdown(searchResult, res.answer);
         } catch (e) {
             searchResult.textContent = "エラー: " + e.message;
         }

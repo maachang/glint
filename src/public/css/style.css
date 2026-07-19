@@ -129,6 +129,54 @@ pre {
   color: #c0392b;
 }
 
+/* RAG検索結果 (marked.js でレンダリングしたMarkdown) の表示エリア. */
+.markdown-body {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.2rem;
+  word-break: break-word;
+}
+
+.markdown-body :first-child {
+  margin-top: 0;
+}
+
+.markdown-body :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body a {
+  color: var(--accent);
+}
+
+.markdown-body pre {
+  background: #f2f3f5;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+
+.markdown-body code {
+  background: #f2f3f5;
+  border-radius: 3px;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.9em;
+}
+
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown-body blockquote {
+  margin: 0.5rem 0;
+  padding: 0.2rem 1rem;
+  border-left: 3px solid var(--border);
+  color: #555;
+}
+
 @media (prefers-color-scheme: dark) {
   body { background: #15181d; color: #e6e6e6; }
   .panel { background: #1d2128; border-color: #333944; }
@@ -136,4 +184,7 @@ pre {
   pre { background: #10131a; border-color: #333944; }
   .tag-chip { background: #24314f; color: #b9caff; }
   th, td { border-color: #333944; }
+  .markdown-body { background: #10131a; border-color: #333944; }
+  .markdown-body pre, .markdown-body code { background: #1d2128; }
+  .markdown-body blockquote { border-color: #333944; color: #aaa; }
 }

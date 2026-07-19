@@ -46,7 +46,7 @@ for (let i = 0; i < groups.length; i++) {
       </div>
       <button type="submit">検索</button>
     </form>
-    <pre id="searchResult"></pre>
+    <div id="searchResult" class="markdown-body"></div>
   </section>
 
   <section class="panel">
@@ -103,6 +103,7 @@ for (let i = 0; i < groups.length; i++) {
   <p class="hint">llama.cpp 接続状態は <a href="/api/health">/api/health</a> で確認できます。</p>
 </footer>
 
+<script src="/js/marked.umd.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>
