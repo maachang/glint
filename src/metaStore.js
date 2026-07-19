@@ -118,7 +118,7 @@
                 "groupName TEXT NOT NULL, " +
                 "docName TEXT NOT NULL, " +
                 "text TEXT NOT NULL, " +
-                "url TEXT NOT NULL, " +
+                "url TEXT, " +
                 "time INTEGER NOT NULL, " +
                 "PRIMARY KEY (groupName, docName)" +
                 ");",
