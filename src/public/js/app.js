@@ -19,6 +19,9 @@
     const addAllowedTagBtn = document.getElementById("addAllowedTagBtn");
     const saveAllowedTagsBtn = document.getElementById("saveAllowedTagsBtn");
     const allowedTagsStatus = document.getElementById("allowedTagsStatus");
+    const newGroupNameInput = document.getElementById("newGroupName");
+    const createGroupBtn = document.getElementById("createGroupBtn");
+    const createGroupStatus = document.getElementById("createGroupStatus");
 
     // 編集中の許可タグ一覧 (保存ボタン押下時にPUTする).
     let allowedTagsDraft = [];
@@ -316,6 +319,29 @@
     groupSelect.addEventListener("change", () => {
         showGroupDocuments(groupSelect.value);
         loadAllowedTags(groupSelect.value);
+    });
+
+    createGroupBtn.addEventListener("click", async () => {
+        const groupName = newGroupNameInput.value.trim();
+        if (!groupName) {
+            createGroupStatus.textContent = "グループ名を入力してください。";
+            createGroupStatus.classList.add("error");
+            return;
+        }
+        createGroupStatus.textContent = "作成中...";
+        createGroupStatus.classList.remove("error");
+        try {
+            await callApi("POST", "/groups", { group: groupName });
+            createGroupStatus.textContent = "作成しました。";
+            newGroupNameInput.value = "";
+            await refreshGroups();
+            groupSelect.value = groupName;
+            showGroupDocuments(groupName);
+            loadAllowedTags(groupName);
+        } catch (e) {
+            createGroupStatus.textContent = "作成に失敗しました: " + e.message;
+            createGroupStatus.classList.add("error");
+        }
     });
 
     addAllowedTagBtn.addEventListener("click", () => {

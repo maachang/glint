@@ -9,6 +9,7 @@
  *   JSON API は全て "/api" 配下 (public/配下の画面と名前空間を分離するため).
  *
  *   GET    /api/groups                             グループ一覧
+ *   POST   /api/groups                             空のグループ(文書0件)を新規作成
  *   GET    /api/groups/:group/documents             グループ内の文書一覧・文書数
  *   GET    /api/groups/:group/stats                 グループ内の tag/category 集計 (件数・比率)
  *   GET    /api/groups/:group/tags                  グループ単位の許可タグ一覧取得 (空=制限なし)
@@ -629,6 +630,26 @@
         _sendJson(res, 200, { groups });
     };
 
+    // POST /api/groups
+    // body: { group: string }
+    // 空のグループ(文書0件)を新規作成する. 通常はputTextFileToVectorGroup()で
+    // 文書を登録した時点で暗黙的にグループが作成されるが、文書登録前にグループ単位の
+    // 設定(許可タグ一覧等)を行いたい場合に、先にグループだけを作成できるようにするもの.
+    const _handleCreateGroup = async function (req, res) {
+        const body = await _readJsonBody(req);
+        if (typeof body.group !== "string" || body.group.length === 0) {
+            _sendError(res, 400, "group is required in the request body.");
+            return;
+        }
+        try {
+            await vg.createGroup(body.group);
+        } catch (e) {
+            _sendError(res, 409, e.message);
+            return;
+        }
+        _sendJson(res, 201, { group: body.group });
+    };
+
     // GET /groups/:group/documents
     const _handleListDocuments = async function (req, res, groupName) {
         const vgObj = await vg.loadVectorGroup(groupName);
@@ -915,6 +936,11 @@
         // GET /api/groups
         if (req.method === "GET" && seg.length === 1 && seg[0] === "groups") {
             _handleListGroups(req, res);
+            return;
+        }
+        // POST /api/groups
+        if (req.method === "POST" && seg.length === 1 && seg[0] === "groups") {
+            await _handleCreateGroup(req, res);
             return;
         }
         // /api/groups/:group/documents[/...]

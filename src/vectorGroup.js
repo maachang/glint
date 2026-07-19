@@ -2340,6 +2340,44 @@
     };
 
     /**
+     * 空のグループ (文書0件) を新規作成する.
+     *
+     * 通常、グループは putTextFileToVectorGroup() で文書を登録した時点で
+     * 暗黙的に作成されるが、文書登録前にグループ単位の設定 (許可タグ一覧等) を
+     * 行いたい場合など、空の状態でグループを作成しておきたいケースに対応する.
+     *
+     * 既に同名グループが存在する場合は例外を throw する
+     * (誤って既存データを消してしまうことを防ぐため).
+     *
+     * [*] の条件は設定しない場合 Config定義の内容を対象とします.
+     * @param  {string} groupName  グループ名
+     * @param  {string} dirPath    [*]ディレクトリパス
+     * @throws {Error}  既に同名グループが存在する場合.
+     */
+    const createGroup = async function (groupName, dirPath) {
+        dirPath = _mkdirsToVectorStore(dirPath);
+        const pg = _trimPathGroup(dirPath, groupName);
+        dirPath = pg.path;
+        groupName = pg.groupName;
+        const { vgFileName, vsFileName } = _getGroupNameToFileName(groupName);
+
+        const lockUk = await sync.lock(groupName);
+        try {
+            const exists =
+                _isFile(dirPath, vgFileName) || _isFile(dirPath, vsFileName);
+            if (exists) {
+                throw new Error(
+                    "VectorGroup already exists: " + groupName,
+                );
+            }
+            _saveGroup(groupName, [], dirPath);
+            _saveSummary(groupName, new VectorSummary(), dirPath);
+        } finally {
+            sync.unlock(groupName, lockUk);
+        }
+    };
+
+    /**
      * バックアップ用に、グループの .vgs / .vss ファイルを生バイナリのまま読み込む.
      *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
@@ -2501,6 +2539,7 @@
         updateVectorGroupFileNames,
         listGroups,
         getGroupStats,
+        createGroup,
         // 保存済みサマリーテキストから {tag, category, summary} を再パースする.
         // (putTextFileToVectorGroup() が保存する "~~~json {...} ~~~" 形式が対象)
         parseSummaryJson: _resultSummayToJson,

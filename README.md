@@ -172,6 +172,7 @@ PORT=3000 node src/apiServer.js
 | メソッド | パス | 説明 |
 |---------|------|------|
 | GET | `/api/groups` | グループ一覧 |
+| POST | `/api/groups` | 空のグループ(文書0件)を新規作成 |
 | GET | `/api/groups/:group/documents` | グループ内の文書一覧・文書数 (tag/category含む) |
 | GET | `/api/groups/:group/stats` | グループ内の tag/category 集計 (件数・比率) |
 | GET | `/api/groups/:group/tags` | グループ単位の許可タグ一覧取得 |
