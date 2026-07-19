@@ -14,6 +14,14 @@
     const searchTagsInput = document.getElementById("searchTags");
     const searchTagSelect = document.getElementById("searchTagSelect");
     const addSearchTagBtn = document.getElementById("addSearchTagBtn");
+    const allowedTagsChips = document.getElementById("allowedTagsChips");
+    const allowedTagInput = document.getElementById("allowedTagInput");
+    const addAllowedTagBtn = document.getElementById("addAllowedTagBtn");
+    const saveAllowedTagsBtn = document.getElementById("saveAllowedTagsBtn");
+    const allowedTagsStatus = document.getElementById("allowedTagsStatus");
+
+    // 編集中の許可タグ一覧 (保存ボタン押下時にPUTする).
+    let allowedTagsDraft = [];
 
     // JSON APIのベースパス (画面 public/ とは名前空間を分離している).
     const API_BASE = "/api";
@@ -251,6 +259,46 @@
         }
     };
 
+    // ─── グループ単位の許可タグ一覧 (enum) の管理 ────────────────
+
+    // allowedTagsDraft の内容をチップ表示に反映する.
+    const renderAllowedTagsChips = function () {
+        allowedTagsChips.innerHTML = "";
+        allowedTagsDraft.forEach((tag) => {
+            const chip = document.createElement("span");
+            chip.className = "tag-chip";
+            chip.textContent = tag + " ";
+            const removeBtn = document.createElement("button");
+            removeBtn.type = "button";
+            removeBtn.textContent = "×";
+            removeBtn.addEventListener("click", () => {
+                allowedTagsDraft = allowedTagsDraft.filter((t) => t !== tag);
+                renderAllowedTagsChips();
+            });
+            chip.appendChild(removeBtn);
+            allowedTagsChips.appendChild(chip);
+        });
+    };
+
+    // 選択中グループの許可タグ一覧をAPIから取得し、編集用ドラフトに反映する.
+    const loadAllowedTags = async function (groupName) {
+        allowedTagsDraft = [];
+        allowedTagsStatus.textContent = "";
+        renderAllowedTagsChips();
+        if (!groupName) return;
+        try {
+            const res = await callApi(
+                "GET",
+                "/groups/" + encodeURIComponent(groupName) + "/tags",
+            );
+            allowedTagsDraft = Array.isArray(res.tags) ? res.tags.slice() : [];
+            renderAllowedTagsChips();
+        } catch (e) {
+            // 未登録グループ等で.vssが無い場合は取得に失敗する (許可タグ無し=自由生成のまま扱う).
+            console.error("[loadAllowedTags] 許可タグ一覧の取得に失敗:", e);
+        }
+    };
+
     // ジョブ完了をポーリングする.
     const waitForJob = async function (jobId) {
         for (let i = 0; i < 300; i++) {
@@ -267,6 +315,39 @@
 
     groupSelect.addEventListener("change", () => {
         showGroupDocuments(groupSelect.value);
+        loadAllowedTags(groupSelect.value);
+    });
+
+    addAllowedTagBtn.addEventListener("click", () => {
+        const tag = allowedTagInput.value.trim();
+        if (!tag) return;
+        if (!allowedTagsDraft.includes(tag)) {
+            allowedTagsDraft.push(tag);
+            renderAllowedTagsChips();
+        }
+        allowedTagInput.value = "";
+    });
+
+    saveAllowedTagsBtn.addEventListener("click", async () => {
+        const groupName = groupSelect.value;
+        if (!groupName) {
+            allowedTagsStatus.textContent = "グループを選択してください。";
+            allowedTagsStatus.classList.add("error");
+            return;
+        }
+        allowedTagsStatus.textContent = "保存中...";
+        allowedTagsStatus.classList.remove("error");
+        try {
+            await callApi(
+                "PUT",
+                "/groups/" + encodeURIComponent(groupName) + "/tags",
+                { tags: allowedTagsDraft },
+            );
+            allowedTagsStatus.textContent = "保存しました。";
+        } catch (e) {
+            allowedTagsStatus.textContent = "保存に失敗しました: " + e.message;
+            allowedTagsStatus.classList.add("error");
+        }
     });
 
     // リロード時に前回選択済みのグループがブラウザにより復元されると

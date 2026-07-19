@@ -93,6 +93,14 @@ for (let i = 0; i < groups.length; i++) {
       </select>
       <button id="refreshGroupsBtn">グループ一覧を更新</button>
     </div>
+    <div class="row">
+      <label>許可タグ一覧 (未設定=自由生成のまま)</label>
+      <div id="allowedTagsChips"></div>
+      <input type="text" id="allowedTagInput" placeholder="タグ名を入力">
+      <button type="button" id="addAllowedTagBtn">追加</button>
+      <button type="button" id="saveAllowedTagsBtn">保存</button>
+      <span id="allowedTagsStatus" class="hint"></span>
+    </div>
   </section>
 
   <section class="panel">
