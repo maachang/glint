@@ -25,7 +25,7 @@ const groups = vg.listGroups();
     <h2>文書登録</h2>
     <form id="putDocumentForm">
       <div class="row">
-        <label>グループ名：&nbsp;&nbsp;
+        <label>&nbsp;&nbsp;グループ名：&nbsp;&nbsp;
           <select id="putGroupName" required>
             <option value="">-- グループを選択 --</option>
 <%
@@ -37,21 +37,24 @@ for (let i = 0; i < groups.length; i++) {
 %>
           </select>
         </label>
-        <span class="hint">新規グループは先に「グループ管理」ページで作成してください。</span>
+        <br>
       </div>
       <div class="row">
-        <label>ファイル名：&nbsp;&nbsp; <input type="text" id="putFileName" placeholder="例: readme.txt" required></label>
+        <div class="hint">&nbsp;&nbsp;&nbsp;&nbsp;※&nbsp;新規グループは「グループ管理」ページで先に作成する必要があります。</div>
       </div>
       <div class="row">
-        <label>参照URL (省略可)：&nbsp;&nbsp; <input type="text" id="putUrl" placeholder="未指定なら自動発行"></label>
+        <label>&nbsp;&nbsp;ファイル名：&nbsp;&nbsp; <input type="text" id="putFileName" placeholder="例: readme.txt" required></label>
       </div>
       <div class="row">
-        <label>本文テキスト<br>
+        <label>&nbsp;&nbsp;参照URL (省略可)：&nbsp;&nbsp; <input type="text" id="putUrl" placeholder="未指定なら自動発行"></label>
+      </div>
+      <div class="row">
+        <label>&nbsp;&nbsp;本文テキスト<br>
           <textarea id="putText" rows="6"></textarea>
         </label>
       </div>
       <div class="row">
-        <label>または PDFファイル (テキスト入力時は無視されます) <input type="file" id="putPdfFile" accept="application/pdf"></label>
+        <label>&nbsp;&nbsp;または PDFファイル (テキスト入力時は無視されます) <input type="file" id="putPdfFile" accept="application/pdf"></label>
       </div>
       <button type="submit">登録</button>
       <span id="putStatus" class="hint"></span>
