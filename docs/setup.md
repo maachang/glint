@@ -8,6 +8,7 @@ Glint のセットアップ手順と `glint.json` の全設定項目リファレ
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) の `--server` モードで起動した、OpenAI API 互換サーバーが最低2台（またはURLは同一で共用も可）
   - **埋め込み用**: `/v1/embeddings` に対応したモデル（例: `embeddinggemma`）
   - **推論用**: `/v1/chat/completions` に対応したチャット補完モデル
+  - llama.cpp の代わりに、OpenAI本家やOpenAI互換ルーター（LiteLLM等）を使うことも可能（後述の `model`/`apiKey`/`apiType` 参照）
 
 ## 2. インストール
 
@@ -44,12 +45,25 @@ npm install
     "inferenceList": [
         { "url": "http://192.168.0.235:8080" },
         // エントリ単位で同時接続数上限を上書きできる.
-        { "url": "http://192.168.0.236:8080", "maxConnectCount": 4 }
+        { "url": "http://192.168.0.236:8080", "maxConnectCount": 4 },
+        // OpenAI本家 / OpenAI互換ルーターを使う場合の例.
+        // apiType: "openai" はヘルスチェック (/health) を行わず常にhealthy扱いにする.
+        {
+            "url": "https://api.openai.com",
+            "model": "gpt-4o-mini",
+            "apiKey": "sk-xxxxxxxx",
+            "apiType": "openai"
+        }
     ],
 
     // ─── 接続管理 ───────────────────────────────────────
     // llama.cppサーバ1台あたりの同時接続数上限のデフォルト値.
     "maxConnectCount": 8,
+    // model/apiKey/apiType はエントリ単位で上書き可能な値のグローバル既定値.
+    // (単一のOpenAI互換ルーターを使う場合など、全エントリで共通にしたい時に使う)
+    "model": null,
+    "apiKey": null,
+    "apiType": "llamacpp",
     // ヘルスチェック間隔 (ミリ秒). apiServer.js 起動時に開始される.
     "healthCheckTiming": 15000,
     // fetchタイムアウト (ミリ秒). LLM推論は長時間かかることがあるため長めに.
@@ -109,8 +123,11 @@ npm install
 |------|------------|------|
 | `embeddingList` | (必須) | 埋め込みサーバー接続先 (`{url}` 単体 or 配列) |
 | `inferenceList` | (必須) | 推論サーバー接続先 (`{url}` 単体 or 配列) |
-| `maxConnectCount` | `8` | サーバ1台あたりの同時接続数上限のデフォルト値 |
-| `healthCheckTiming` | `15000` | ヘルスチェック間隔 (ミリ秒) |
+| `maxConnectCount` | `8` | サーバ1台あたりの同時接続数上限のデフォルト値 (エントリ単位で上書き可) |
+| `model` | `null` | リクエストボディに含める `model` 名のグローバル既定値 (エントリ単位で上書き可)。OpenAI/ルーターモードでは実質必須 |
+| `apiKey` | `null` | `Authorization: Bearer` に使うAPIキーのグローバル既定値 (エントリ単位で上書き可) |
+| `apiType` | `"llamacpp"` | 接続先種別のグローバル既定値。`"llamacpp"` または `"openai"` (エントリ単位で上書き可)。`"openai"` はヘルスチェックを行わず常にhealthy扱い |
+| `healthCheckTiming` | `15000` | ヘルスチェック間隔 (ミリ秒)。`apiType: "llamacpp"` の接続先のみ対象 |
 | `fetchTimeout` | `300000` | HTTPリクエストのタイムアウト (ミリ秒) |
 | `dirPath` | `"./"` | 各種相対パスの基準ディレクトリ |
 | `vectorStorePath` | `"./vectorStore"` | `.vgs`/`.vss` の格納先 |
@@ -160,20 +177,25 @@ PORT=8080 node src/apiServer.js
 
 詳細なAPI仕様は [apiServer.md](./apiServer.md) を参照してください。
 
+### ブラウザからWeb管理画面で使う場合
+
+`apiServer.js` を起動した状態でブラウザから `http://localhost:3000/` を開くと、グループ一覧・文書一覧・タグ/カテゴリ集計の確認、文書登録（テキスト/PDF）、RAG検索が行える簡易管理画面が表示されます（`src/public/` 配下、`index.mt.html`はサーバサイドで動的レンダリングされる）。画面は内部で本APIを `fetch()` している以外の特別な仕組みは無いため、同様のUIを自作する際のサンプルとしても参照できます。
+
 ### Bunで単一バイナリにコンパイルする場合
 
-[Bun](https://bun.sh/) を使うと、`apiServer.js` を外部依存なしの単一実行バイナリにコンパイルできます。
+[Bun](https://bun.sh/) を使うと、`apiServer.js` を単一実行バイナリにコンパイルできます（`pdf-parse` は外部npm依存として同梱されます）。
 
 ```sh
-./scripts/build-bun.sh                # ./dist/glint に出力
+./scripts/build-bun.sh                # ./dist/glint (+ ./dist/public) に出力
 ./scripts/build-bun.sh ./dist/myapp   # 出力先を指定
 ```
 
-**なぜ専用スクリプトが必要か**: `pdf-parse` は内部で `` require(`./pdf.js/${options.version}/build/pdf.js`) `` という動的requireを使っており、Bunの `bun build --compile` は静的解析でバンドル対象を決めるため、これをそのままではバイナリに埋め込めません（コンパイルは成功するが、実行時にPDF登録で `Cannot find module` エラーになる）。`scripts/build-bun.sh` はビルド直前にこの動的requireを固定バージョンの静的requireへ一時的にパッチし、コンパイル完了後に `node_modules` を元の状態へ復元します。
+**なぜ専用スクリプトが必要か**: `pdf-parse` は内部で `` require(`./pdf.js/${options.version}/build/pdf.js`) `` という動的requireを使っており、Bunの `bun build --compile` は静的解析でバンドル対象を決めるため、これをそのままではバイナリに埋め込めません（コンパイルは成功するが、実行時にPDF登録で `Cannot find module` エラーになる）。`scripts/build-bun.sh` はビルド直前にこの動的requireを固定バージョンの静的requireへ一時的にパッチし、コンパイル完了後に `node_modules` を元の状態へ復元します。またビルド後、`src/public/`（Web管理画面）を出力先と同じディレクトリの `public/` に自動コピーします。
 
 - 前提: `npm install` 済み、かつ `bun` コマンドがインストールされていること
 - `pdf-parse` のバージョンを更新した場合、スクリプト内の `PDF_JS_VERSION` を `node_modules/pdf-parse/lib/pdf-parse.js` の `DEFAULT_OPTIONS.version` と合わせて更新する必要がある
-- 生成されたバイナリは `glint.json` 等の設定ファイル・`vectorStore`・ログ出力先を実行時にファイルシステムから読み書きするため、それらは別途バイナリと同じ実行環境に配置する（コードのみがバイナリに埋め込まれる）
+- 生成されたバイナリは `glint.json` 等の設定ファイル・`vectorStore`・ログ出力先・`public/` を実行時にファイルシステムから読み書きするため、コンパイル後は**バイナリと同じディレクトリに `public/` を配置した状態で配布・実行する**（`scripts/build-bun.sh` が自動でコピーする）
+- Bunコンパイル済みバイナリでは `__dirname` がコンパイル時の開発機の絶対パスに固定されるため、`apiServer.js` は `public/` の位置を `process.execPath`（実行中バイナリ自身の実際の場所）基準で解決するようにしている。同様に `$loadLib`（jhtmlテンプレート内のモジュールローダー）も、相対パスでの動的requireがBunコンパイル済みバイナリで解決に失敗するため、必ず絶対パスに変換してから `require()` している
 
 ## 7. トラブルシューティング
 
