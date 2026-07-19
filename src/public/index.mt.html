@@ -1,0 +1,97 @@
+<%
+// jhtml (jhtml.js) によるサーバサイド動的レンダリング.
+// 初期表示時のグループ一覧だけをサーバ側で埋め込み、
+// それ以外の操作（文書一覧・検索・登録等）はブラウザ側JS(js/app.js)から
+// 既存のJSON API を fetch() で呼び出して行う.
+// $loadLib は src/配下のモジュールを動的にロードする組み込み関数 (apiServer.js提供).
+const vg = $loadLib("vectorGroup.js");
+const groups = vg.listGroups();
+%>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glint 管理画面</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header>
+  <h1>✨ Glint 管理画面</h1>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>グループ</h2>
+    <div class="row">
+      <select id="groupSelect">
+        <option value="">-- グループを選択 --</option>
+<%
+for (let i = 0; i < groups.length; i++) {
+%>
+        <option value="${groups[i]}">${groups[i]}</option>
+<%
+}
+%>
+      </select>
+      <button id="refreshGroupsBtn">グループ一覧を更新</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>文書一覧・タグ/カテゴリ集計</h2>
+    <div id="documentsArea">
+      <p class="hint">グループを選択してください。</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>文書登録</h2>
+    <form id="putDocumentForm">
+      <div class="row">
+        <label>グループ名 <input type="text" id="putGroupName" required></label>
+      </div>
+      <div class="row">
+        <label>ファイル名 <input type="text" id="putFileName" placeholder="例: readme.txt" required></label>
+      </div>
+      <div class="row">
+        <label>参照URL (省略可) <input type="text" id="putUrl" placeholder="未指定なら自動発行"></label>
+      </div>
+      <div class="row">
+        <label>本文テキスト<br>
+          <textarea id="putText" rows="6"></textarea>
+        </label>
+      </div>
+      <div class="row">
+        <label>または PDFファイル (テキスト入力時は無視されます) <input type="file" id="putPdfFile" accept="application/pdf"></label>
+      </div>
+      <button type="submit">登録</button>
+      <span id="putStatus" class="hint"></span>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>RAG検索</h2>
+    <form id="searchForm">
+      <div class="row">
+        <label>グループ名 <input type="text" id="searchGroupName" required></label>
+      </div>
+      <div class="row">
+        <label>質問 <input type="text" id="searchMessage" size="60" required></label>
+      </div>
+      <div class="row">
+        <label>タグで絞り込み (カンマ区切り, 省略可) <input type="text" id="searchTags"></label>
+      </div>
+      <button type="submit">検索</button>
+    </form>
+    <pre id="searchResult"></pre>
+  </section>
+</main>
+
+<footer>
+  <p class="hint">llama.cpp 接続状態は <a href="/health">/health</a> で確認できます。</p>
+</footer>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

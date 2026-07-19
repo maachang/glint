@@ -13,6 +13,13 @@
 # そのため、コンパイル前に一時的にバージョンを固定した静的requireへ書き換え、
 # コンパイル完了後に元の動的requireへ復元する (node_modules を汚したままにしないため).
 #
+# 【public/ について】
+# Bunコンパイル済みバイナリは __dirname がコンパイル時のソースパス (開発機の
+# 絶対パス) に固定されてしまうため、apiServer.js は実行バイナリの実際の場所
+# (process.execPath) を基準に "そのバイナリと同じディレクトリの public/" を
+# 探すようにしている (Bunコンパイル済みバイナリ実行時のみ). そのため、このスクリプトは
+# コンパイル後に src/public/ を出力先と同じディレクトリの public/ にコピーする.
+#
 # 【使い方】
 #   ./scripts/build-bun.sh [出力先パス]
 #   ./scripts/build-bun.sh              # ./dist/glint に出力
@@ -75,5 +82,11 @@ fi
 echo "==> bun build --compile ${ENTRY_FILE} --outfile ${OUT_FILE}"
 bun build --compile "${ENTRY_FILE}" --outfile "${OUT_FILE}"
 
-echo "==> 完了: ${OUT_FILE}"
+# public/ (画面用の静的ファイル・jhtmlテンプレート) をバイナリと同じ場所にコピーする.
+OUT_DIR="$(cd "$(dirname "${OUT_FILE}")" && pwd)"
+echo "==> src/public を ${OUT_DIR}/public にコピーします"
+rm -rf "${OUT_DIR}/public"
+cp -r "./src/public" "${OUT_DIR}/public"
+
+echo "==> 完了: ${OUT_FILE} (同ディレクトリに public/ を配置済み)"
 echo "    (node_modules/pdf-parse は元の動的require版に復元されます)"

@@ -17,6 +17,14 @@
  *   GET    /groups/:group/backup               グループのバックアップ (.vgs/.vss + 元データ)
  *   POST   /groups/:group/restore              グループのレストア (バックアップから復元)
  *   GET    /health                             llama.cpp接続先の状態確認
+ *   GET    /*                                  public/配下の静的ファイル配信・jhtml動的画面
+ *
+ * 【画面 (public/) について】
+ *   上記のJSON APIルートに一致しないGETリクエストは、public/配下のファイルを
+ *   探して配信する (静的ファイルはそのまま, ".mt.html" は jhtml.js でサーバサイド
+ *   レンダリングしてから配信). "/" は "public/index.mt.html" にマッピングする.
+ *   public/index.mt.html + public/js/app.js が、ブラウザから本APIを呼び出して
+ *   利用できる簡易管理画面になっている.
  *
  * 【文書登録が非同期な理由】
  *   サマリー生成 + 埋め込みベクトル化で数秒〜数十秒かかるため、リクエストを
@@ -56,12 +64,89 @@
     const http = require("http");
     const crypto = require("crypto");
     const fs = require("fs");
+    const path = require("path");
 
     const Config = require("./config.js");
     const ConnectMan = require("./connectMan.js");
     const vg = require("./vectorGroup.js");
     const pdfExtract = require("./pdfExtract.js");
     const util = require("./util.js");
+    const jhtml = require("./jhtml.js");
+
+    // ═══════════════════════════════════════════════════════════════
+    // jhtmlテンプレート向けライブラリローダー ($loadLib).
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // AIメモ: new Function() 経由で実行されるコード内から相対パスで require() を
+    // 呼ぶと、Bunで --compile したバイナリでは "Cannot find module './x' from
+    // '/$bunfs/root/...'" のように解決に失敗することを確認済み (相対パスの解決に
+    // 必要な「呼び出し元ファイル」のコンテキストが失われるため).
+    // 一方、絶対パスに変換してから require() すれば Bunコンパイル済みバイナリでも
+    // 正しく解決できることを確認済みなので、$loadLib は必ず LIBRARY_PATH 基準の
+    // 絶対パスに変換してから require() を呼ぶようにしている.
+    // (このため、テンプレートから src/ 配下の任意のモジュールを動的requireできる.
+    //  新しいモジュールを使う際もレジストリ登録等は不要).
+
+    // $loadLib のライブラリ探索基準ディレクトリ (= src/).
+    const LIBRARY_PATH = __dirname;
+
+    /**
+     * jhtmlテンプレート内から、src/ 配下のモジュールを名前 (相対パス) で動的にロードする.
+     *
+     * @param  {string} name  LIBRARY_PATH からの相対パス (例: "vectorGroup.js" や
+     *                         "/vectorGroup.js"、拡張子省略も可).
+     * @return {*}            require() の結果.
+     * @throws {Error}        対象ファイルが存在しない場合.
+     */
+    const $loadLib = function (name) {
+        name = ("" + name).trim();
+        // 先頭の "/" は除去する (LIBRARY_PATH からの相対パスとして扱うため).
+        if (name.charCodeAt(0) === 47) {
+            name = name.substring(1);
+        }
+        // 絶対パスに変換してから require() する.
+        // (相対パスのまま new Function() 内から require() すると、Bunコンパイル済み
+        //  バイナリでモジュール解決に失敗するため、必ず絶対パス化してから渡すこと)
+        let absPath = path.join(LIBRARY_PATH, name);
+        if (fs.existsSync(absPath)) {
+            return require(absPath);
+        }
+        // 拡張子省略時のため ".js" を付けたパスでも確認する.
+        if (fs.existsSync(absPath + ".js")) {
+            return require(absPath + ".js");
+        }
+        throw new Error("Failed to load lib: " + name);
+    };
+
+    // 画面 (静的ファイル・jhtmlテンプレート) の配信元ディレクトリ.
+    //
+    // AIメモ: Bunで --compile した実行バイナリでは、__dirname がコンパイル時の
+    // ソースパス (開発機の絶対パス) に固定されてしまい、バイナリを別の場所に
+    // 配置・配布した場合に public/ を見つけられない (存在しないパスを指してしまう)。
+    // 一方 process.execPath は実行中のバイナリ自身の実際の場所を指すため、
+    // Bunコンパイル済みバイナリ実行時 (process.argv[1] が "/$bunfs/" 配下になる)
+    // はそちらを基準にする。通常の node/bun 実行時は __dirname を使う
+    // (この場合 process.execPath は node/bun 本体のパスになり使えないため).
+    const _isBunCompiledBinary =
+        typeof process.argv[1] === "string" &&
+        process.argv[1].startsWith("/$bunfs/");
+    const PUBLIC_DIR = _isBunCompiledBinary
+        ? path.join(path.dirname(process.execPath), "public")
+        : path.join(__dirname, "public");
+    // jhtml (動的テンプレート) の拡張子.
+    const JHTML_EXTENSION = ".mt.html";
+    // 拡張子 → Content-Type のマッピング.
+    const STATIC_MIME_TYPES = {
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "application/javascript; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".ico": "image/x-icon",
+    };
 
     // PDF登録時に受け付けるMIMEタイプ.
     const MIME_TYPE_PDF = "application/pdf";
@@ -187,6 +272,124 @@
             "/groups/" + encodeURIComponent(groupName) +
             "/documents/" + encodeURIComponent(fileName) + "/raw"
         );
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // 画面配信 (public/ 配下の静的ファイル・jhtml動的テンプレート).
+    // ═══════════════════════════════════════════════════════════════
+
+    // jhtml変換結果のキャッシュ. key: 絶対パス, value: {mtimeMs, code}.
+    // ファイルの mtime が変わっていたら再変換する (毎リクエストでのファイルI/O+
+    // 変換コストを避けるための簡易キャッシュ).
+    const _jhtmlCache = new Map();
+
+    /**
+     * リクエストパスから public/ 配下の実ファイルパスを安全に解決する.
+     * "/" は index.mt.html にマッピングする.
+     * public/ の外側に出るパス (../ 等) は null を返して拒否する.
+     *
+     * @param  {string} pathname  URLのパス部分 (クエリ抜き, デコード前).
+     * @return {string|null}      解決済みの絶対パス. 不正な場合は null.
+     */
+    const _resolvePublicPath = function (pathname) {
+        let rel = decodeURIComponent(pathname);
+        if (rel === "/" || rel === "") {
+            rel = "/index.mt.html";
+        }
+        const resolved = path.normalize(path.join(PUBLIC_DIR, rel));
+        // public/ の外側を指すパスは拒否する (パストラバーサル対策).
+        if (
+            resolved !== PUBLIC_DIR &&
+            !resolved.startsWith(PUBLIC_DIR + path.sep)
+        ) {
+            return null;
+        }
+        return resolved;
+    };
+
+    /**
+     * jhtml (.mt.html) テンプレートをサーバサイドでレンダリングして返す.
+     *
+     * テンプレート内では $request, $response, $out (出力関数), $loadLib (src/配下の
+     * モジュールを動的にロードする関数) が利用できる.
+     *
+     * @param  {string} filePath  .mt.html の絶対パス.
+     * @param  {http.IncomingMessage} req
+     * @param  {http.ServerResponse}  res
+     * @return {Promise<string>}  レンダリング結果のHTML文字列.
+     */
+    const _renderJHtml = async function (filePath, req, res) {
+        const mtimeMs = fs.statSync(filePath).mtimeMs;
+        const cached = _jhtmlCache.get(filePath);
+        let code;
+        if (cached && cached.mtimeMs === mtimeMs) {
+            code = cached.code;
+        } else {
+            const source = fs.readFileSync(filePath, "utf-8");
+            // noOut=true: $out呼び出しの生ステートメントのみを取得し、
+            // 実行コンテキスト ($request/$response/$loadLib) は呼び出し側で注入する.
+            code = jhtml.convert(source, "$out", true);
+            _jhtmlCache.set(filePath, { mtimeMs, code });
+        }
+        let outStr = "";
+        const $out = function (s) {
+            outStr += s;
+        };
+        const fn = new Function(
+            "$request",
+            "$response",
+            "$out",
+            "$loadLib",
+            code,
+        );
+        await fn(req, res, $out, $loadLib);
+        return outStr;
+    };
+
+    // 静的ファイル配信 + jhtml動的テンプレート配信 (public/ 配下).
+    // API の各ルートに一致しなかった GET リクエストの最終フォールバックとして呼ぶ.
+    const _handlePublicFile = async function (req, res, pathname) {
+        const filePath = _resolvePublicPath(pathname);
+        if (filePath == null) {
+            _sendError(res, 403, "Forbidden path: " + pathname);
+            return;
+        }
+        let stat;
+        try {
+            stat = fs.statSync(filePath);
+        } catch (e) {
+            _sendError(res, 404, "Not found: " + pathname);
+            return;
+        }
+        if (!stat.isFile()) {
+            _sendError(res, 404, "Not found: " + pathname);
+            return;
+        }
+
+        if (filePath.endsWith(JHTML_EXTENSION)) {
+            try {
+                const html = await _renderJHtml(filePath, req, res);
+                const body = Buffer.from(html, "utf-8");
+                res.writeHead(200, {
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Content-Length": body.length,
+                });
+                res.end(body);
+            } catch (e) {
+                console.error("#jhtml render error (" + filePath + "): " + e.message);
+                _sendError(res, 500, "Template rendering error: " + e.message);
+            }
+            return;
+        }
+
+        const ext = path.extname(filePath).toLowerCase();
+        const contentType = STATIC_MIME_TYPES[ext] || "application/octet-stream";
+        const body = fs.readFileSync(filePath);
+        res.writeHead(200, {
+            "Content-Type": contentType,
+            "Content-Length": body.length,
+        });
+        res.end(body);
     };
 
     // デフォルトの待受ポート.
@@ -710,6 +913,13 @@
             seg[2] === "restore"
         ) {
             await _handleRestoreGroup(req, res, seg[1]);
+            return;
+        }
+
+        // 上記のAPIルートに一致しなかった GET リクエストは、public/ 配下の
+        // 静的ファイル・jhtml動的テンプレートの配信を試みる.
+        if (req.method === "GET") {
+            await _handlePublicFile(req, res, pathname);
             return;
         }
 
