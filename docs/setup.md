@@ -8,7 +8,7 @@ Glint のセットアップ手順と `glint.json` の全設定項目リファレ
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) の `--server` モードで起動した、OpenAI API 互換サーバーが最低2台（またはURLは同一で共用も可）
   - **埋め込み用**: `/v1/embeddings` に対応したモデル（例: `embeddinggemma`）
   - **推論用**: `/v1/chat/completions` に対応したチャット補完モデル
-  - llama.cpp の代わりに、OpenAI本家やOpenAI互換ルーター（LiteLLM等）を使うことも可能（後述の `model`/`apiKey`/`apiType` 参照）
+  - llama.cpp の代わりに、OpenAI本家やOpenAI互換ルーター（LiteLLM等）を使うことも可能（後述の `model`/`apiKey`/`apiType` 参照）。OpenAI本家のAPIキーのみで動かす場合は [setup-openai.md](./setup-openai.md) も参照
 
 ## 2. インストール
 

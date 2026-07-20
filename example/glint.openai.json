@@ -1,0 +1,54 @@
+{
+    // OpenAI本家を使う場合のテンプレート.
+    // ローカルにllama.cppサーバを立てず、個人利用でOpenAIのAPIキーだけで動かす想定.
+    //
+    // 埋め込み用: model は好みのembeddingモデルに置き換える (例: text-embedding-3-small).
+    "embeddingList": [
+        {
+            "url": "https://api.openai.com",
+            "model": "text-embedding-3-small",
+            "apiKey": "sk-xxxxxxxx",
+            "apiType": "openai"
+        }
+    ],
+
+    // 推論用: model は好みのチャット補完モデルに置き換える (例: gpt-4o-mini).
+    "inferenceList": [
+        {
+            "url": "https://api.openai.com",
+            "model": "gpt-4o-mini",
+            "apiKey": "sk-xxxxxxxx",
+            "apiType": "openai"
+        }
+    ],
+
+    // OpenAI利用時はヘルスチェック(/health)を行わず常にhealthy扱いになるため、
+    // maxConnectCountはOpenAI側のレート制限を踏まえて調整する.
+    "maxConnectCount": 8,
+
+    // fetchタイムアウト(ミリ秒). LLM推論は長時間かかることがあるため長めに.
+    "fetchTimeout": 300000,
+
+    // 保存先基本パス.
+    "dirPath": "./test",
+    // vectorStore格納先.
+    "vectorStorePath": "./vectorStore",
+    // アップロードドキュメント先.
+    "srcDocumentPath": "./documents",
+
+    // １つのvector座標変換を行う塊の文字列.
+    "chunkSize": 300,
+
+    // サマリー推論の正確性.
+    "summaryTemperature": 0,
+    // サマリー推論モード: OFF.
+    "summaryReasoning": false,
+    // rag推論の正確性.
+    "ragTemperature": 0,
+    // rag推論モード: OFF.
+    "ragReasoning": false,
+    // searchEmbeddingの検索結果最大数.
+    "vectorSearchLength": 18,
+    // ragとして推論を行う候補ドキュメント候補最大数.
+    "ragRequestChunkLength": 6
+}
