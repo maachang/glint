@@ -1,7 +1,9 @@
-# glint APIクライアント
+# glint APIクライアント (JavaScript版)
 
 `src/apiServer.js` が提供するHTTP APIに接続して操作するためのクライアントライブラリです。
 `src/`配下のモジュールは直接requireせず、あくまでHTTP経由でAPIを呼ぶだけの薄いラッパーです。
+
+Python版は [python/README.md](./python/README.md) を参照してください。
 
 エンドポイント仕様の詳細は [../docs/apiServer.md](../docs/apiServer.md) を参照してください。
 

@@ -245,7 +245,7 @@ PORT=3000 node src/apiServer.js
 | `docs/` | セットアップマニュアル・APIリファレンス等の詳細ドキュメント |
 | `scripts/build-bun.sh` | Bunで単一実行バイナリにコンパイルするためのビルドスクリプト |
 | `scripts/evalSearch.js` | 検索精度 (Recall@K) を計測する評価用CLIスクリプト |
-| `client/` | apiServer.jsのHTTP APIに接続するクライアントライブラリ (`glintClient.js`) |
+| `client/` | apiServer.jsのHTTP APIに接続するクライアントライブラリ (JS版 `glintClient.js` / Python版 `python/glint_client.py`) |
 
 ## テスト
 
