@@ -12,6 +12,7 @@
     const searchTagsInput = document.getElementById("searchTags");
     const searchTagSelect = document.getElementById("searchTagSelect");
     const addSearchTagBtn = document.getElementById("addSearchTagBtn");
+    const clearSearchTagsBtn = document.getElementById("clearSearchTagsBtn");
 
     // 前回入力値の復元・自動保存.
     window.Glint.bindPersistentInputs(["searchGroupName", "searchMessage", "searchTags"]);
@@ -142,6 +143,13 @@
             current.push(tag);
         }
         searchTagsInput.value = current.join(", ");
+        // el.valueをプログラムで書き換えてもinputイベントは発火しないため、
+        // 明示的に保存する (Glint.bindPersistentInputsによる自動保存を補う).
+        window.Glint.savePersisted("searchTags", searchTagsInput.value);
+    });
+
+    clearSearchTagsBtn.addEventListener("click", () => {
+        searchTagsInput.value = "";
         // el.valueをプログラムで書き換えてもinputイベントは発火しないため、
         // 明示的に保存する (Glint.bindPersistentInputsによる自動保存を補う).
         window.Glint.savePersisted("searchTags", searchTagsInput.value);
