@@ -158,7 +158,9 @@ const stats = await vg.getGroupStats(GROUP_NAME);
 console.log(stats);
 ```
 
-より実践的な使用例は `test.js` を参照してください。
+より実践的な使用例は `example/test.js` を参照してください（`vectorGroup.js` を直接requireする低レベルな使い方）。HTTP API経由での同等の使用例は `example/test2.js`（`client/glintClient.js` を使用）を参照してください。
+
+`test.js`/`test2.js`（プロジェクトルート）は個人の動作確認用スクリプトのため `.gitignore` 済みで、実際の登録対象文書名や接続先を直接書き込んで使う想定です。`example/` 配下の同名ファイルはGit管理下にあるテンプレート（`VG_FILE_LIST` が空、パスがプロジェクトルート基準ではなく `example/` 基準）で、これをコピーしてルートに配置し内容を埋めて使うのが想定の使い方です（`example/glint.json` も同様に `glint.json` のテンプレート）。
 
 ## 使い方 (HTTP APIサーバーとして)
 
@@ -239,7 +241,9 @@ PORT=3000 node src/apiServer.js
 | `src/xor128.js` | 乱数生成 |
 | `src/apiServer.js` | 文書登録・RAG検索・バックアップ/レストア・Web画面配信を提供する HTTP APIサーバー |
 | `src/public/` | ブラウザ用Web管理画面 (index/documents/groups.mt.html + js/common・menu・search・documents・groups.js + css/style.css) |
-| `test.js` | 動作確認用のサンプルスクリプト |
+| `test.js` | 動作確認用のサンプルスクリプト (vectorGroup.jsを直接require)。個人利用の実データ用のため`.gitignore`済み |
+| `test2.js` | 動作確認用のサンプルスクリプト (client/glintClient.js経由でapiServer.jsをHTTP APIから操作)。同上の理由で`.gitignore`済み |
+| `example/` | `test.js`/`test2.js`/`glint.json`のテンプレート (Git管理下。コピーしてルートに配置し内容を埋めて使う) |
 | `tests/` | ダミー接続 (モック) を用いた自動テスト |
 | `tests/eval/` | 検索精度評価用のデータセット (質問と正解文書のペア) |
 | `docs/` | セットアップマニュアル・APIリファレンス等の詳細ドキュメント |

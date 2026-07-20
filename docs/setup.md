@@ -178,7 +178,7 @@ const vg = require("./src/vectorGroup.js");
 // glint.json はプロセス起動時に自動的にロードされる (Config.getInstance() 初回呼び出し時).
 ```
 
-より実践的な使用例は `test.js` を参照してください。
+より実践的な使用例は `example/test.js` を参照してください（`test.js`自体は個人の実データ用スクリプトのため`.gitignore`済み。`example/test.js`をコピーしてルートに配置し、`VG_FILE_LIST`等を埋めて使う）。
 
 ### HTTP APIサーバーとして使う場合
 
@@ -188,7 +188,7 @@ node src/apiServer.js
 PORT=8080 node src/apiServer.js
 ```
 
-詳細なAPI仕様は [apiServer.md](./apiServer.md) を参照してください。
+詳細なAPI仕様は [apiServer.md](./apiServer.md) を参照してください。HTTP API経由でプログラムから操作する場合は、`client/`配下のクライアントライブラリ（JS版 `client/glintClient.js`、Python版 `client/python/glint_client.py`）が使えます。使用例は `example/test2.js`（`test2.js`自体は個人の実データ用スクリプトのため`.gitignore`済み）、詳細は [../client/README.md](../client/README.md) を参照してください。
 
 ### ブラウザからWeb管理画面で使う場合
 

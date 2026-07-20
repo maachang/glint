@@ -7,12 +7,12 @@ coverage
 .vscode/
 __pycache__
 
-test
-test.js
-test2
-test2.js
-test.md
-glint.json
+/test
+/test.js
+/test2
+/test2.js
+/test.md
+/glint.json
 
 .claudeWork
 tmp

@@ -1,0 +1,42 @@
+{
+    // 組み込み系LLMサーバ.
+    //"embeddingList": [{ "url": "http://192.168.0.230:8081" }],
+    "embeddingList": [{ "url": "http://192.168.0.222:8081" }],
+
+    // 推論系LLMサーバ.
+    //"inferenceList": [{ "url": "http://192.168.0.228:8080" }],
+    //"inferenceList": [{ "url": "http://192.168.0.229:8080" }],
+    //"inferenceList": [{ "url": "http://192.168.0.230:8080" }],
+    //"inferenceList": [{ "url": "http://192.168.0.231:8080" }],
+    //"inferenceList": [{ "url": "http://192.168.0.232:8080" }],
+    //"inferenceList": [{ "url": "http://192.168.0.233:8080" }],
+    //"inferenceList": [{ "url": "http://192.168.0.234:8080" }],
+    "inferenceList": [{ "url": "http://192.168.0.235:8080" }],
+
+    // fetchタイムアウト(5分)).
+    // 「AIループ」タイムアウトストップ対応として、５分程度が妥当.
+    "fetchTimeout": 300000,
+    // 保存先基本パス.
+    "dirPath": "../test",
+    // vectorStore格納先.
+    "vectorStorePath": "/./vectorStore",
+    // アップロードドキュメント先.
+    "srcDocumentPath": "./documents",
+    // １つのvector座標変換を行う塊の文字列.
+    //"chunkSize": 500,
+    "chunkSize": 300,
+    // chunkSize の文字列の塊の前後を継続する文字列数.
+    //"overlapSize": 50,
+    // サマリー推論の正確性.
+    "summaryTemperature": 0,
+    // サマリー推論モード: OFF.
+    "summaryReasoning": false,
+    // rag推論の正確性.
+    "ragTemperature": 0,
+    // rag推論モード: OFF.
+    "ragReasoning": false,
+    // searchEmbeddingの検索結果最大数.
+    "vectorSearchLength": 18,
+    // ragとして推論を行う候補ドキュメント候補最大数.
+    "ragRequestChunkLength": 6
+}
