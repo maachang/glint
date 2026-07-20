@@ -277,7 +277,7 @@
         const base = conf.publicBaseUrl || "http://" + req.headers.host;
         return (
             base +
-            "/groups/" + encodeURIComponent(groupName) +
+            "/api/groups/" + encodeURIComponent(groupName) +
             "/documents/" + encodeURIComponent(fileName) + "/raw"
         );
     };
