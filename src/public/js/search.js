@@ -13,6 +13,14 @@
     const searchTagSelect = document.getElementById("searchTagSelect");
     const addSearchTagBtn = document.getElementById("addSearchTagBtn");
     const clearSearchTagsBtn = document.getElementById("clearSearchTagsBtn");
+    const searchingModalOverlay = document.getElementById("searchingModalOverlay");
+    const cancelSearchBtn = document.getElementById("cancelSearchBtn");
+    const modalSearchElapsed = document.getElementById("modalSearchElapsed");
+
+    // 検索中のAbortController (取り消しボタンから中断するため保持する).
+    let currentSearchAbortController = null;
+    // モーダル内の経過秒数カウントアップ用タイマー.
+    let modalElapsedTimer = null;
 
     // 前回入力値の復元・自動保存.
     window.Glint.bindPersistentInputs(["searchGroupName", "searchMessage", "searchTags"]);
@@ -165,7 +173,16 @@
         const tagsRaw = document.getElementById("searchTags").value.trim();
         const tags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 
+        // 検索中は他の操作をブロックするモーダルを表示する.
+        currentSearchAbortController = new AbortController();
+        searchingModalOverlay.style.display = "flex";
+
         const startTime = Date.now();
+        modalSearchElapsed.textContent = "0秒";
+        modalElapsedTimer = setInterval(() => {
+            modalSearchElapsed.textContent = Math.floor((Date.now() - startTime) / 1000) + "秒";
+        }, 1000);
+
         try {
             const body = { message };
             if (tags && tags.length > 0) body.tags = tags;
@@ -173,6 +190,7 @@
                 "POST",
                 "/groups/" + encodeURIComponent(groupName) + "/search",
                 body,
+                { signal: currentSearchAbortController.signal },
             );
             const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
             const md = buildSearchResultMarkdown(res);
@@ -183,8 +201,24 @@
             window.Glint.savePersisted("searchElapsedText", searchElapsed.textContent);
         } catch (e) {
             const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
-            searchResult.textContent = "エラー: " + e.message;
-            searchElapsed.textContent = "検索時間: " + elapsedSec + "秒 (エラー)";
+            if (e.name === "AbortError") {
+                searchResult.textContent = "検索を取り消しました。";
+                searchElapsed.textContent = "";
+            } else {
+                searchResult.textContent = "エラー: " + e.message;
+                searchElapsed.textContent = "検索時間: " + elapsedSec + "秒 (エラー)";
+            }
+        } finally {
+            clearInterval(modalElapsedTimer);
+            modalElapsedTimer = null;
+            searchingModalOverlay.style.display = "none";
+            currentSearchAbortController = null;
+        }
+    });
+
+    cancelSearchBtn.addEventListener("click", () => {
+        if (currentSearchAbortController) {
+            currentSearchAbortController.abort();
         }
     });
 

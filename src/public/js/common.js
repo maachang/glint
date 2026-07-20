@@ -9,11 +9,15 @@ window.Glint = window.Glint || {};
     const API_BASE = "/api";
 
     // API呼び出し共通ヘルパー. エラー時は { error } を投げる.
-    Glint.callApi = async function (method, path, body) {
+    // opts.signal (AbortSignal) を渡すと、呼び出し元でリクエストを中断できる
+    // (中断時はfetchがAbortErrorをthrowするので、呼び出し元でその名前を判定すること).
+    Glint.callApi = async function (method, path, body, opts) {
+        opts = opts || {};
         const res = await fetch(API_BASE + path, {
             method,
             headers: body ? { "Content-Type": "application/json" } : undefined,
             body: body ? JSON.stringify(body) : undefined,
+            signal: opts.signal,
         });
         const json = await res.json();
         if (!res.ok) {

@@ -270,6 +270,43 @@ pre {
   color: #555;
 }
 
+/* 検索中モーダル (index.mt.html). 他の操作をブロックするための全面オーバーレイ. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-box {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3rem 4rem;
+  min-width: 320px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  font-size: 1.3rem;
+}
+
+.modal-box p {
+  margin: 0 0 1rem;
+}
+
+#modalSearchElapsed {
+  font-size: 1.1rem;
+  color: #555;
+  margin-bottom: 1.5rem;
+}
+
+.modal-box button {
+  font-size: 1.1rem;
+  padding: 0.5rem 1.5rem;
+}
+
 @media (prefers-color-scheme: dark) {
   body { background: #15181d; color: #e6e6e6; }
   .panel { background: #1d2128; border-color: #333944; }
@@ -284,4 +321,6 @@ pre {
   .markdown-body { background: #10131a; border-color: #333944; }
   .markdown-body pre, .markdown-body code { background: #1d2128; }
   .markdown-body blockquote { border-color: #333944; color: #aaa; }
+  .modal-box { background: #1d2128; border-color: #333944; color: #e6e6e6; }
+  #modalSearchElapsed { color: #aaa; }
 }
