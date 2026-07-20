@@ -145,7 +145,7 @@ class GlintClient:
         """文書登録ジョブの状態を取得する. -> {"status": str, "error": str|None, "createdAt": int, "updatedAt": int}"""
         return self._request_json("GET", "/jobs/" + urllib.parse.quote(job_id, safe=""))
 
-    def wait_for_job(self, job_id, interval_sec=1.0, timeout_sec=300.0):
+    def wait_for_job(self, job_id, interval_sec=1.0, timeout_sec=1800.0):
         """
         ジョブが success または error になるまでポーリングする.
         戻り値: 最終的なジョブ情報 (status == "success").
@@ -163,7 +163,7 @@ class GlintClient:
             time.sleep(interval_sec)
 
     def register_text_document_and_wait(
-        self, group, file_name, text, url=None, options=None, interval_sec=1.0, timeout_sec=300.0
+        self, group, file_name, text, url=None, options=None, interval_sec=1.0, timeout_sec=1800.0
     ):
         """テキスト文書を登録し、ジョブの完了(success/error)まで待つ. -> 完了したジョブ情報."""
         result = self.register_text_document(group, file_name, text, url=url, options=options)

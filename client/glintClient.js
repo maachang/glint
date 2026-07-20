@@ -185,14 +185,14 @@
          * @param  {string} jobId
          * @param  {object} [opts]
          *   - {number} [intervalMs=1000]  ポーリング間隔.
-         *   - {number} [timeoutMs=300000] タイムアウト.
+         *   - {number} [timeoutMs=1800000] タイムアウト (デフォルト30分. 長文書のサマリー生成・埋め込みは時間がかかるため).
          * @return {Promise<object>}  最終的なジョブ情報 (status === "success").
          * @throws {Error} status === "error" の場合、またはタイムアウトした場合.
          */
         async waitForJob(jobId, opts) {
             opts = opts || {};
             const intervalMs = opts.intervalMs || 1000;
-            const timeoutMs = opts.timeoutMs || 300000;
+            const timeoutMs = opts.timeoutMs || 1800000;
             const startTime = Date.now();
             for (;;) {
                 const job = await this.getJob(jobId);
