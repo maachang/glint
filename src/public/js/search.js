@@ -8,6 +8,7 @@
     const searchForm = document.getElementById("searchForm");
     const searchGroupSelect = document.getElementById("searchGroupName");
     const searchResult = document.getElementById("searchResult");
+    const searchElapsed = document.getElementById("searchElapsed");
     const searchTagsInput = document.getElementById("searchTags");
     const searchTagSelect = document.getElementById("searchTagSelect");
     const addSearchTagBtn = document.getElementById("addSearchTagBtn");
@@ -149,12 +150,14 @@
     searchForm.addEventListener("submit", async (ev) => {
         ev.preventDefault();
         searchResult.textContent = "検索中...";
+        searchElapsed.textContent = "";
 
         const groupName = document.getElementById("searchGroupName").value.trim();
         const message = document.getElementById("searchMessage").value.trim();
         const tagsRaw = document.getElementById("searchTags").value.trim();
         const tags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 
+        const startTime = Date.now();
         try {
             const body = { message };
             if (tags && tags.length > 0) body.tags = tags;
@@ -163,12 +166,17 @@
                 "/groups/" + encodeURIComponent(groupName) + "/search",
                 body,
             );
+            const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
             const md = buildSearchResultMarkdown(res);
             renderMarkdown(searchResult, md);
+            searchElapsed.textContent = "検索時間: " + elapsedSec + "秒";
             // 検索結果もページを開いた際に復元できるよう保存する.
             window.Glint.savePersisted("searchResultMarkdown", md);
+            window.Glint.savePersisted("searchElapsedText", searchElapsed.textContent);
         } catch (e) {
+            const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
             searchResult.textContent = "エラー: " + e.message;
+            searchElapsed.textContent = "検索時間: " + elapsedSec + "秒 (エラー)";
         }
     });
 
@@ -176,5 +184,9 @@
     const savedResultMarkdown = window.Glint.loadPersisted("searchResultMarkdown");
     if (savedResultMarkdown) {
         renderMarkdown(searchResult, savedResultMarkdown);
+        const savedElapsedText = window.Glint.loadPersisted("searchElapsedText");
+        if (savedElapsedText) {
+            searchElapsed.textContent = savedElapsedText;
+        }
     }
 })();
