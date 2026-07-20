@@ -105,6 +105,9 @@
     /** ベクトル検索の最大取得件数デフォルト値 */
     const DEFAULT_VECTOR_SEARCH_LENGTH = 30;
 
+    /** 文書一覧APIのページングデフォルト件数 */
+    const DEFAULT_DOCUMENTS_PAGE_SIZE = 50;
+
     /** RAG リクエストに含めるチャンク数のデフォルト値 */
     const DEFAULT_RAG_REQUEST_CHANK_LENGTH = 7;
 
@@ -431,6 +434,12 @@
             this.vectorSearchLength = DEFAULT_VECTOR_SEARCH_LENGTH;
 
             /**
+             * 文書一覧API(GET /api/groups/:group/documents)でページングを行う際の
+             * 1ページあたりの件数デフォルト値. リクエストで pageSize が指定された場合はそちらを優先する.
+             */
+            this.documentsPageSize = DEFAULT_DOCUMENTS_PAGE_SIZE;
+
+            /**
              * ハイブリッド検索(文字2-gramによるキーワードスコアをコサイン類似度に
              * 合成する)のOn/Offを設定します. デフォルトON.
              * embeddingだけでは固有名詞等の完全一致検索に弱い場合を補うためのもの.
@@ -612,7 +621,8 @@
          *   "chunkSize":             500,
          *   "overlapSize":           50,
          *   "vectorSearchLength":    10,
-         *   "ragRequestChunkLength": 5
+         *   "ragRequestChunkLength": 5,
+         *   "documentsPageSize":     50
          * }
          *
          * @param {Object} json  設定内容のオブジェクト
@@ -712,6 +722,13 @@
                     json,
                     "vectorSearchLength",
                     this.vectorSearchLength,
+                ),
+            );
+            this.documentsPageSize = Conv.getInt(
+                _mapToGetValue(
+                    json,
+                    "documentsPageSize",
+                    this.documentsPageSize,
                 ),
             );
             this.hybridSearch = Conv.getBoolean(

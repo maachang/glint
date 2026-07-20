@@ -81,11 +81,31 @@
 
         /**
          * グループ内の文書一覧・文書数を取得する.
+         *
+         * opts (page/pageSize/tag/searchのいずれか) を指定した場合、ページング・
+         * タグ絞り込み・ファイル名部分検索付きの結果を返す (指定しない場合は全件, 後方互換).
+         *
          * @param  {string} group
-         * @return {Promise<{count: number, documents: Array}>}
+         * @param  {object} [opts]
+         *   - {number} [page]      1始まりのページ番号 (指定時はページング結果を返す).
+         *   - {number} [pageSize]  1ページあたりの件数 (省略時はapiServer.js側のConfigのdocumentsPageSize).
+         *   - {string} [tag]       完全一致で絞り込むタグ.
+         *   - {string} [search]    文書名の部分一致検索文字列.
+         * @return {Promise<{count: number, documents: Array}>} opts未指定時 (全件).
+         * @return {Promise<{total: number, page: number, pageSize: number, documents: Array}>} opts指定時.
          */
-        listDocuments(group) {
-            return this._requestJson("GET", "/groups/" + encodeURIComponent(group) + "/documents");
+        listDocuments(group, opts) {
+            opts = opts || {};
+            const query = new URLSearchParams();
+            if (opts.page !== undefined) query.set("page", opts.page);
+            if (opts.pageSize !== undefined) query.set("pageSize", opts.pageSize);
+            if (opts.tag !== undefined) query.set("tag", opts.tag);
+            if (opts.search !== undefined) query.set("search", opts.search);
+            const qs = query.toString();
+            return this._requestJson(
+                "GET",
+                "/groups/" + encodeURIComponent(group) + "/documents" + (qs ? "?" + qs : ""),
+            );
         }
 
         /**

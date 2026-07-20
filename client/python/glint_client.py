@@ -88,9 +88,29 @@ class GlintClient:
         """空のグループ(文書0件)を新規作成する. -> {"group": str}"""
         return self._request_json("POST", "/groups", {"group": group})
 
-    def list_documents(self, group):
-        """グループ内の文書一覧・文書数を取得する. -> {"count": int, "documents": [...]}"""
-        return self._request_json("GET", "/groups/" + urllib.parse.quote(group, safe="") + "/documents")
+    def list_documents(self, group, page=None, page_size=None, tag=None, search=None):
+        """
+        グループ内の文書一覧・文書数を取得する.
+
+        page/page_size/tag/search のいずれかを指定した場合、ページング・タグ絞り込み・
+        ファイル名部分検索付きの結果を返す (指定しない場合は全件, 後方互換).
+
+        -> {"count": int, "documents": [...]}  (未指定時)
+        -> {"total": int, "page": int, "pageSize": int, "documents": [...]}  (指定時)
+        """
+        params = {}
+        if page is not None:
+            params["page"] = page
+        if page_size is not None:
+            params["pageSize"] = page_size
+        if tag is not None:
+            params["tag"] = tag
+        if search is not None:
+            params["search"] = search
+        query = ("?" + urllib.parse.urlencode(params)) if params else ""
+        return self._request_json(
+            "GET", "/groups/" + urllib.parse.quote(group, safe="") + "/documents" + query
+        )
 
     def get_stats(self, group):
         """グループ内のtag/category集計(件数・比率)を取得する."""

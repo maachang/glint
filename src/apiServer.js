@@ -654,8 +654,16 @@
     };
 
     // GET /groups/:group/documents
+    // クエリパラメータ ?page=&pageSize=&tag=&search= のいずれかを指定した場合、
+    // ページング・タグ絞り込み・ファイル名部分検索を行う (未指定時は従来通り全件).
     const _handleListDocuments = async function (req, res, groupName) {
-        const result = await vg.getGroupDocuments(groupName);
+        const query = new URLSearchParams(req.url.split("?")[1] || "");
+        const opts = {};
+        if (query.has("page")) opts.page = Number(query.get("page"));
+        if (query.has("pageSize")) opts.pageSize = Number(query.get("pageSize"));
+        if (query.has("tag")) opts.tag = query.get("tag");
+        if (query.has("search")) opts.search = query.get("search");
+        const result = await vg.getGroupDocuments(groupName, opts);
         _sendJson(res, 200, result);
     };
 

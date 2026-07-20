@@ -32,7 +32,7 @@ print(result["message"], result["list"])
 |---------|-------------|
 | `list_groups()` | `GET /api/groups` |
 | `create_group(group)` | `POST /api/groups` |
-| `list_documents(group)` | `GET /api/groups/:group/documents` |
+| `list_documents(group, page=None, page_size=None, tag=None, search=None)` | `GET /api/groups/:group/documents` |
 | `get_stats(group)` | `GET /api/groups/:group/stats` |
 | `get_allowed_tags(group)` | `GET /api/groups/:group/tags` |
 | `set_allowed_tags(group, tags)` | `PUT /api/groups/:group/tags` |

@@ -228,6 +228,81 @@
         ).run(groupName);
     };
 
+    /** 指定グループがdocumentsテーブルへのバックフィル済みかどうかを返す. */
+    const isDocumentsBackfilled = function (groupName, dirPath) {
+        const db = _getDb(dirPath);
+        const row = db
+            .prepare("SELECT documentsDone FROM backfill_status WHERE groupName = ?")
+            .get(groupName);
+        return !!(row && row.documentsDone);
+    };
+
+    /**
+     * LIKE検索用に % _ \ をエスケープする ( ESCAPE '\' 句と組み合わせて使う).
+     * @param  {string} text
+     * @return {string}
+     */
+    const _escapeLikePattern = function (text) {
+        return text.replace(/[\\%_]/g, "\\$&");
+    };
+
+    /**
+     * グループ内の文書一覧をページング・タグ絞り込み・ファイル名部分検索付きで取得する
+     * (summaries と documents を JOIN し、SQL側でLIMIT/OFFSETを行う。文書数が多いグループでも
+     * 全件をメモリにロードしない).
+     *
+     * @param  {string} groupName
+     * @param  {object} opts
+     *   - {number} [page=1]        1始まりのページ番号.
+     *   - {number} [pageSize=50]   1ページあたりの件数.
+     *   - {string} [tag]           完全一致で絞り込むタグ (省略時は絞り込み無し).
+     *   - {string} [search]        文書名の部分一致検索文字列 (省略時は絞り込み無し).
+     * @param  {string} [dirPath]
+     * @return {{total: number, page: number, pageSize: number, documents: Array}}
+     */
+    const getDocumentsPage = function (groupName, opts, dirPath) {
+        const db = _getDb(dirPath);
+        opts = opts || {};
+        const page = opts.page && opts.page > 0 ? Math.floor(opts.page) : 1;
+        const pageSize = opts.pageSize && opts.pageSize > 0 ? Math.floor(opts.pageSize) : 50;
+
+        const conditions = ["s.groupName = ?"];
+        const params = [groupName];
+        if (opts.search) {
+            conditions.push("s.docName LIKE ? ESCAPE '\\'");
+            params.push("%" + _escapeLikePattern(opts.search) + "%");
+        }
+        if (opts.tag) {
+            conditions.push("d.tag = ?");
+            params.push(opts.tag);
+        }
+        const where = conditions.join(" AND ");
+        const joinClause =
+            "FROM summaries s LEFT JOIN documents d " +
+            "ON d.groupName = s.groupName AND d.docName = s.docName WHERE " + where;
+
+        const totalRow = db.prepare("SELECT COUNT(*) as c " + joinClause).get(...params);
+        const total = totalRow ? totalRow.c : 0;
+
+        const rows = db
+            .prepare(
+                "SELECT s.docName, s.url, s.time, d.tag, d.category " + joinClause +
+                    " ORDER BY s.docName LIMIT ? OFFSET ?",
+            )
+            .all(...params, pageSize, (page - 1) * pageSize);
+
+        const documents = rows.map(function (r) {
+            return {
+                name: r.docName,
+                url: r.url,
+                time: Number(r.time),
+                tag: r.tag || null,
+                category: r.category ? JSON.parse(r.category) : null,
+            };
+        });
+        return { total, page, pageSize, documents };
+    };
+
     /** グループの文書総数・パース失敗数を返す. */
     const getDocumentTotals = function (groupName, dirPath) {
         const db = _getDb(dirPath);
@@ -714,6 +789,8 @@
         upsertDocumentMeta,
         deleteDocumentMeta,
         ensureDocumentsBackfilled,
+        isDocumentsBackfilled,
+        getDocumentsPage,
         getDocumentTotals,
         getTagCounts,
         getCategoryCounts,

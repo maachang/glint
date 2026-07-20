@@ -73,9 +73,22 @@ for (let i = 0; i < groups.length; i++) {
 
   <section class="panel">
     <h2>文書一覧・タグ/カテゴリ集計</h2>
+    <div class="row">
+      <label>&nbsp;&nbsp;ファイル名検索：&nbsp;&nbsp;
+        <input type="text" id="docSearchInput" placeholder="ファイル名の一部を入力">
+      </label>
+      &nbsp;&nbsp;
+      <label>タグ絞り込み：&nbsp;
+        <select id="docTagFilterSelect">
+          <option value="">-- すべて --</option>
+        </select>
+      </label>
+    </div>
+    <div class="row" id="documentsPagerTop"></div>
     <div id="documentsArea">
       <p class="hint">グループを選択してください。</p>
     </div>
+    <div class="row" id="documentsPagerBottom"></div>
   </section>
 </main>
 

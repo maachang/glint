@@ -32,7 +32,7 @@ console.log(result.message, result.list);
 |---------|-------------|
 | `listGroups()` | `GET /api/groups` |
 | `createGroup(group)` | `POST /api/groups` |
-| `listDocuments(group)` | `GET /api/groups/:group/documents` |
+| `listDocuments(group, opts)` | `GET /api/groups/:group/documents`（`opts`に`page`/`pageSize`/`tag`/`search`を指定可） |
 | `getStats(group)` | `GET /api/groups/:group/stats` |
 | `getAllowedTags(group)` | `GET /api/groups/:group/tags` |
 | `setAllowedTags(group, tags)` | `PUT /api/groups/:group/tags` |

@@ -108,6 +108,11 @@ npm install
     // デフォルトOFF (質問文などの実データが蓄積されるため明示的なopt-in).
     "searchLogEnabled": false,
 
+    // ─── 文書一覧API ────────────────────────────────────
+    // GET /api/groups/:group/documents でページング指定時 (page指定時) の
+    // 1ページあたりのデフォルト件数 (リクエストでpageSizeを指定した場合はそちらを優先).
+    "documentsPageSize": 50,
+
     // ─── プロセス間ロック ────────────────────────────────
     // sync.js のロック待ちタイムアウト (ミリ秒, -1=無限待ち).
     "lockTimeout": -1,
@@ -147,7 +152,7 @@ npm install
 | `summaryReasoning` | `null` | サマリー生成時の推論モード on/off/未指定 |
 | `ragTemperature` | `0.25` | RAG推論のTemperature |
 | `vectorSearchLength` | `30` | ベクトル検索の最大取得件数 |
-| `hybridSearch` | `true` | 文字2-gramキーワードスコアをコサイン類似度に合成するハイブリッド検索のON/OFF |
+| `hybridSearch` | `true` | SQLite FTS5(trigram)+BM25によるキーワードスコアをコサイン類似度に合成するハイブリッド検索のON/OFF |
 | `hybridKeywordWeight` | `0.3` | ハイブリッド検索のキーワードスコアの重み (0〜1) |
 | `ragRequestChunkLength` | `7` | RAGプロンプトに含めるチャンク数 |
 | `ragRequestChunkFormat` | (既定テンプレート) | 1チャンク分のプロンプト整形フォーマット |
@@ -155,6 +160,7 @@ npm install
 | `ragRerank` | `true` | 候補文書をLLMで質問との関連度順に並び替える(リランキング)かどうか |
 | `rerankCandidateLength` | `20` | リランキング対象とする候補文書数の上限 |
 | `searchLogEnabled` | `false` | 検索ログ(質問文・引用文書一覧)をSQLiteに記録するか |
+| `documentsPageSize` | `50` | 文書一覧API(`GET /api/groups/:group/documents`)のページングデフォルト件数 |
 | `lockTimeout` | `-1` | ロック待ちタイムアウト (-1=無限待ち) |
 | `logDir` | `"./log"` | ローカルログの出力先ディレクトリ |
 | `logFile` | `"logout"` | ローカルログのファイル名 (拡張子抜き) |

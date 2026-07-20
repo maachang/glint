@@ -2050,45 +2050,102 @@
     };
 
     /**
+     * [private]documentsテーブルへのバックフィルが未実施の場合のみ、
+     * サマリー全件をロードして実施する (実施済みならサマリーロードを省略する).
+     * グループの存在確認もここで行う (存在しない場合 ENOENT).
+     *
+     * @param  {string} groupName  正規化済みのグループ名
+     * @param  {string} dirPath    正規化済みのディレクトリパス
+     */
+    const _ensureDocumentsBackfilledLazy = async function (groupName, dirPath) {
+        const lockUk = await sync.lock(groupName);
+        try {
+            if (!_groupExists(groupName, dirPath)) {
+                const err = new Error("VectorGroup file does not exist: " + groupName);
+                err.code = "ENOENT";
+                throw err;
+            }
+            if (!metaStore.isDocumentsBackfilled(groupName, dirPath)) {
+                const summary = _loadSummary(groupName, dirPath);
+                metaStore.ensureDocumentsBackfilled(
+                    groupName,
+                    summary,
+                    _resultSummayToJson,
+                    dirPath,
+                );
+            }
+        } finally {
+            sync.unlock(groupName, lockUk);
+        }
+    };
+
+    /**
      * グループ内の文書一覧 (文書名・URL・登録時刻・tag・category) を返す.
      *
      * tag/categoryは、各文書のサマリー保存テキストを1件ずつ再パースするのではなく、
      * metaStore(SQLite)のdocumentsテーブルから一括取得する (文書数が多い場合の
      * パース処理コストを削減するため). embedding(チャンク本体)は一切ロードしない.
      *
+     * opts (page/pageSize/tag/search のいずれか) を指定した場合、summaries/documents
+     * テーブルをSQL側でJOIN・LIKE検索・LIMIT/OFFSETするページング結果を返す
+     * (文書数が多いグループでも全件をメモリにロードしない). 何も指定しない場合は
+     * 従来通り全件を返す (後方互換).
+     *
      * [*] の条件は設定しない場合 Config定義の内容を対象とします.
      * @param  {string} groupName   グループ名
+     * @param  {object} [opts]
+     *   - {number} [page]      1始まりのページ番号 (指定時はページング結果を返す).
+     *   - {number} [pageSize]  1ページあたりの件数 (省略時は Config の documentsPageSize).
+     *   - {string} [tag]       完全一致で絞り込むタグ.
+     *   - {string} [search]    文書名の部分一致検索文字列.
      * @param  {string} [*]dirPath  ディレクトリパス
-     * @return {{count: number, documents: Array<{name:string,url:string,time:number,tag:string|null,category:string[]|null}>}}
+     * @return {{count: number, documents: Array}} ページング未指定時 (全件).
+     * @return {{total: number, page: number, pageSize: number, documents: Array}} ページング指定時.
      */
-    const getGroupDocuments = async function (groupName, dirPath) {
-        const loaded = await _loadSummaryOnly(groupName, dirPath);
-        const { summary } = loaded;
-        groupName = loaded.groupName;
-        dirPath = loaded.dirPath;
+    const getGroupDocuments = async function (groupName, opts, dirPath) {
+        opts = opts || {};
+        dirPath = _getVectorStoreDir(dirPath);
+        const pg = _trimPathGroup(dirPath, groupName);
+        groupName = pg.groupName;
+        dirPath = pg.path;
 
-        // このモジュール導入前から存在するグループの場合、metaStore(SQLite)側に
-        // データが無いため、.vssの内容から一括構築する (2回目以降は即戻る).
-        metaStore.ensureDocumentsBackfilled(
+        await _ensureDocumentsBackfilledLazy(groupName, dirPath);
+
+        const hasFilter =
+            opts.page != null ||
+            opts.pageSize != null ||
+            !!opts.tag ||
+            !!opts.search;
+
+        if (!hasFilter) {
+            // 後方互換: フィルタ・ページング未指定時は全件を返す (従来の挙動).
+            const summary = _loadSummary(groupName, dirPath);
+            const metaMap = metaStore.getAllDocumentMeta(groupName, dirPath);
+            const names = summary.getDocuments();
+            const documents = names.map(function (name) {
+                const meta = metaMap.get(name);
+                return {
+                    name,
+                    url: summary.getUrl(name),
+                    time: Number(summary.getTime(name)),
+                    tag: meta ? meta.tag : null,
+                    category: meta ? meta.category : null,
+                };
+            });
+            return { count: documents.length, documents };
+        }
+
+        const conf = Config.getInstance();
+        return metaStore.getDocumentsPage(
             groupName,
-            summary,
-            _resultSummayToJson,
+            {
+                page: opts.page,
+                pageSize: opts.pageSize || conf.documentsPageSize,
+                tag: opts.tag,
+                search: opts.search,
+            },
             dirPath,
         );
-
-        const metaMap = metaStore.getAllDocumentMeta(groupName, dirPath);
-        const names = summary.getDocuments();
-        const documents = names.map(function (name) {
-            const meta = metaMap.get(name);
-            return {
-                name,
-                url: summary.getUrl(name),
-                time: Number(summary.getTime(name)),
-                tag: meta ? meta.tag : null,
-                category: meta ? meta.category : null,
-            };
-        });
-        return { count: documents.length, documents };
     };
 
     /**

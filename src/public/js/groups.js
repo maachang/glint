@@ -18,9 +18,19 @@
     const newGroupNameInput = document.getElementById("newGroupName");
     const createGroupBtn = document.getElementById("createGroupBtn");
     const createGroupStatus = document.getElementById("createGroupStatus");
+    const docSearchInput = document.getElementById("docSearchInput");
+    const docTagFilterSelect = document.getElementById("docTagFilterSelect");
+    const documentsPagerTop = document.getElementById("documentsPagerTop");
+    const documentsPagerBottom = document.getElementById("documentsPagerBottom");
 
     // 編集中の許可タグ一覧 (保存ボタン押下時にPUTする).
     let allowedTagsDraft = [];
+
+    // 文書一覧の現在のページ・検索条件 (グループ切り替え時にリセットする).
+    let docListState = { page: 1, search: "", tag: "" };
+
+    // ファイル名検索の入力デバウンス用タイマー.
+    let docSearchDebounceTimer = null;
 
     // 前回入力値の復元・自動保存.
     // groupSelectの復元はrefreshGroups()より前に行う (refreshGroups内の
@@ -53,21 +63,74 @@
         }
     };
 
+    // タグ絞り込み用<select>の内容を、現在の選択値を維持しつつ集計タグ一覧で置き換える.
+    const _fillTagFilterOptions = function (tags) {
+        const current = docTagFilterSelect.value;
+        docTagFilterSelect.innerHTML = '<option value="">-- すべて --</option>';
+        tags.forEach((t) => {
+            const opt = document.createElement("option");
+            opt.value = t.name;
+            opt.textContent = t.name + " (" + t.count + ")";
+            docTagFilterSelect.appendChild(opt);
+        });
+        if (tags.some((t) => t.name === current)) {
+            docTagFilterSelect.value = current;
+        }
+    };
+
+    // ページ送りボタンを1箇所 (top/bottom共通) 描画する.
+    const _renderPagerInto = function (container, idPrefix, groupName, page, totalPages, total) {
+        container.innerHTML =
+            '<button type="button" id="' + idPrefix + 'PrevBtn"' + (page <= 1 ? " disabled" : "") + ">← 前へ</button>" +
+            ' <span class="hint">' + page + " / " + totalPages + " ページ (全" + total + "件)</span> " +
+            '<button type="button" id="' + idPrefix + 'NextBtn"' + (page >= totalPages ? " disabled" : "") + ">次へ →</button>";
+        document.getElementById(idPrefix + "PrevBtn").addEventListener("click", () => {
+            if (docListState.page > 1) {
+                docListState.page--;
+                showGroupDocuments(groupName);
+            }
+        });
+        document.getElementById(idPrefix + "NextBtn").addEventListener("click", () => {
+            if (docListState.page < totalPages) {
+                docListState.page++;
+                showGroupDocuments(groupName);
+            }
+        });
+    };
+
+    // ページ送りボタンを上下両方に描画する.
+    const _renderDocumentsPager = function (groupName, page, pageSize, total) {
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        _renderPagerInto(documentsPagerTop, "docPagerTop", groupName, page, totalPages, total);
+        _renderPagerInto(documentsPagerBottom, "docPagerBottom", groupName, page, totalPages, total);
+    };
+
     // 指定グループの文書一覧・タグ/カテゴリ集計を表示する.
+    // docListState (page/search/tag) の内容でページング・絞り込みを行う.
     const showGroupDocuments = async function (groupName) {
         if (!groupName) {
             documentsArea.innerHTML = '<p class="hint">グループを選択してください。</p>';
+            documentsPagerTop.innerHTML = "";
+            documentsPagerBottom.innerHTML = "";
             return;
         }
         documentsArea.innerHTML = '<p class="hint">読み込み中...</p>';
         try {
             const [docs, stats, tagsRes] = await Promise.all([
-                callApi("GET", "/groups/" + encodeURIComponent(groupName) + "/documents"),
+                callApi(
+                    "GET",
+                    "/groups/" + encodeURIComponent(groupName) + "/documents" +
+                        "?page=" + docListState.page +
+                        (docListState.search ? "&search=" + encodeURIComponent(docListState.search) : "") +
+                        (docListState.tag ? "&tag=" + encodeURIComponent(docListState.tag) : ""),
+                ),
                 callApi("GET", "/groups/" + encodeURIComponent(groupName) + "/stats"),
                 callApi("GET", "/groups/" + encodeURIComponent(groupName) + "/tags"),
             ]);
 
-            let html = "<p>文書数: " + docs.count + "</p>";
+            _fillTagFilterOptions(stats.tags);
+
+            let html = "<p>文書数: " + docs.total + " (絞り込み前の全体: " + stats.totalDocuments + ")</p>";
 
             if (stats.tags.length > 0) {
                 html += "<p>タグ: ";
@@ -173,8 +236,12 @@
                     }
                 });
             });
+
+            _renderDocumentsPager(groupName, docs.page, docs.pageSize, docs.total);
         } catch (e) {
             documentsArea.innerHTML = '<p class="error">取得に失敗しました: ' + e.message + "</p>";
+            documentsPagerTop.innerHTML = "";
+            documentsPagerBottom.innerHTML = "";
         }
     };
 
@@ -222,9 +289,32 @@
 
     refreshGroupsBtn.addEventListener("click", refreshGroups);
 
+    // グループ切り替え時は検索条件・ページを初期化する.
+    const _resetDocListState = function () {
+        docListState = { page: 1, search: "", tag: "" };
+        docSearchInput.value = "";
+        docTagFilterSelect.value = "";
+    };
+
     groupSelect.addEventListener("change", () => {
+        _resetDocListState();
         showGroupDocuments(groupSelect.value);
         loadAllowedTags(groupSelect.value);
+    });
+
+    docSearchInput.addEventListener("input", () => {
+        clearTimeout(docSearchDebounceTimer);
+        docSearchDebounceTimer = setTimeout(() => {
+            docListState.search = docSearchInput.value.trim();
+            docListState.page = 1;
+            showGroupDocuments(groupSelect.value);
+        }, 400);
+    });
+
+    docTagFilterSelect.addEventListener("change", () => {
+        docListState.tag = docTagFilterSelect.value;
+        docListState.page = 1;
+        showGroupDocuments(groupSelect.value);
     });
 
     createGroupBtn.addEventListener("click", async () => {
@@ -242,6 +332,7 @@
             newGroupNameInput.value = "";
             await refreshGroups();
             groupSelect.value = groupName;
+            _resetDocListState();
             showGroupDocuments(groupName);
             loadAllowedTags(groupName);
         } catch (e) {
